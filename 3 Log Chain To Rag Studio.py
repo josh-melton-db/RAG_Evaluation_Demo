@@ -63,7 +63,6 @@ print(f"Saving chain from: {chain_notebook_path}, config from: {chain_config_pat
 # COMMAND ----------
 
 # DBTITLE 1,Log the model
-
 ############
 # Log the chain to the Notebook's MLflow Experiment inside a Run
 # The model is logged to the Notebook's MLflow Experiment as a run
@@ -73,7 +72,7 @@ logged_chain_info = rag_studio.log_model(code_path=chain_notebook_path, config_p
 
 # Optionally, tag the run to save any additional metadata
 with mlflow.start_run(run_id=logged_chain_info.run_id):
-  mlflow.set_tag(key="your_custom_tag", value="info_about_chain")
+  mlflow.set_tag(key="rag_eval", value="roughdraft")
 
 # Save YAML config params to the Run for easy filtering / comparison later(requires experimental import)
 # ⚠️⚠️ 🐛🐛 Experimental features likely have bugs! 🐛🐛 ⚠️⚠️
@@ -145,9 +144,10 @@ displayHTML(pretty_json_html)
 ############
 # To deploy the model, first register the chain from the MLflow Run as a Unity Catalog model.
 ############
-uc_catalog = "rag"
-uc_schema = "ericp_cummins"
-model_name = "pdf_bot_cummins"
+# TODO: config file that does this for you
+uc_catalog = "josh_melton"
+uc_schema = "rag_eval"
+model_name = "rag_eval_service_tickets"
 uc_model_fqdn = f"{uc_catalog}.{uc_schema}.{model_name}" 
 
 mlflow.set_registry_uri('databricks-uc')
@@ -180,7 +180,7 @@ for deployment in deployments:
 
 # COMMAND ----------
 
-from databricks.rag_studio import set_permissions
-from databricks.rag_studio.entities import PermissionLevel
+# from databricks.rag_studio import set_permissions
+# from databricks.rag_studio.entities import PermissionLevel
 
-set_permissions(uc_model_fqdn, ["josh.melton@databricks.com"], PermissionLevel.CAN_REVIEW)
+# set_permissions(uc_model_fqdn, ["josh.melton@databricks.com"], PermissionLevel.CAN_REVIEW)
