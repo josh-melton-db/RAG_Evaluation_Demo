@@ -124,9 +124,12 @@ print(w.vector_search_indexes.get_index(index_name).status.message)
 
 # COMMAND ----------
 
+# TODO: write this out to the yaml automatically (include the commented out text in the next cell)
+# TODO: write multiple versions to yaml automatically and iterate to show the value of the evaluation process?
 rag_config_yaml = f"""
 vector_search_endpoint_name: "{vector_search_endpoint_name}"
 vector_search_index: "{index_name}"
+index_delta_table: "{target_table}"
 # These must be set to use the Review App to match the columns in your index
 vector_search_schema:
   primary_key: {CHUNK_ID_COLUMN_NAME}
@@ -140,4 +143,12 @@ print(rag_config_yaml)
 
 # COMMAND ----------
 
-
+# chunk_template: "`{chunk_text}`\n"
+# chat_endpoint: "databricks-dbrx-instruct"
+# chat_prompt_template: "You are a trusted assistant that helps answer questions about field service maintenance tickets based only on the provided information. If you do not know the answer to a question, you truthfully say you do not know.  Here is some context which might or might not help you answer: {context}.  Answer directly, do not repeat the question, do not start with something like: the answer to the question, do not add AI in front of your answer, do not say: here is the answer, do not mention the context or the question. Based on this history and context, answer this question: {question}."
+# chat_prompt_template_variables:
+#   - "context"
+#   - "question"
+# chat_endpoint_parameters:
+#   temperature: 0.01
+#   max_tokens: 500
