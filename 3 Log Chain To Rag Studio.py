@@ -173,7 +173,7 @@ print(parse_deployment_info(deployment_info))
 ############
 # If you lost the deployment information captured above, you can find it using list_deployments()
 ############
-deployments = rag_studio.list_deployments()
+# deployments = rag_studio.list_deployments()
 for deployment in deployments:
   if deployment.model_name == uc_model_fqdn and deployment.model_version==uc_registered_chain_info.version:
     print(parse_deployment_info(deployment))
