@@ -19,20 +19,15 @@ from typing import Optional, Tuple
 # COMMAND ----------
 
 # DBTITLE 1,Configure table names
-############
-# UC FQN to the Inference Table
-# You can find this from the chain's Model Serving Endpoint
-############
-
-uc_catalog = 'rag'
-uc_schema = 'ericp_cummins'
+uc_catalog = 'josh_melton' # TODO: dynamic
+uc_schema = 'rag_eval'
 
 # dbutils.widgets.text(
 #     "inference_table_uc_fqn",
 #     label="1. Inference Table UC table",
 #     defaultValue="catalog.schema.inference_table",
 # )
-inference_table_uc_fqn = f"{uc_catalog}.{uc_schema}.`rag_studio-pdf_bot_cummins_payload`"
+inference_table_uc_fqn = f"{uc_catalog}.{uc_schema}.`rag_studio-rag_eval_service_tickets_payload`" # TODO: dynamic
 ############
 # Specify UC FQN to output the `request_log` table to
 ############
@@ -62,169 +57,105 @@ assessment_log_output_uc_fqn = f"{uc_catalog}.{uc_schema}.`rag_studio-pdf_bot_cu
 
 from pyspark.sql import types as T
 
-
-######################################################################
-# Request log schema definitions
-######################################################################
-
-# Format of the conversation following the OpenAI messages format.
-MESSAGE_SCHEMA = T.StructType(
-    [
-        T.StructField("role", T.StringType()),
-        T.StructField("content", T.StringType()),
-    ]
-)
-
-# Format of the RAG response in the choices format.
+MESSAGE_SCHEMA = T.StructType([T.StructField("role", T.StringType()), T.StructField("content", T.StringType())])
 CHOICES_SCHEMA = T.ArrayType(T.StructType([T.StructField("message", MESSAGE_SCHEMA)]))
+CHUNK_SCHEMA = T.StructType([
+    T.StructField("chunk_id", T.StringType()),
+    T.StructField("doc_uri", T.StringType()),
+    T.StructField("content", T.StringType()),
+])
 
-# Schema of a single retrieval chunk in the trace step.
-CHUNK_SCHEMA = T.StructType(
-    [
-        T.StructField("chunk_id", T.StringType()),
-        T.StructField("doc_uri", T.StringType()),
-        T.StructField("content", T.StringType()),
-    ]
-)
+RETRIEVAL_SCHEMA = T.StructType([
+    T.StructField("query_text", T.StringType()),
+    T.StructField("chunks", T.ArrayType(CHUNK_SCHEMA)),
+])
 
-RETRIEVAL_SCHEMA = T.StructType(
-    [
-        T.StructField("query_text", T.StringType()),
-        T.StructField("chunks", T.ArrayType(CHUNK_SCHEMA)),
-    ]
-)
-
-TEXT_GENERATION_SCHEMA = T.StructType(
-    [
-        T.StructField("prompt", T.StringType()),
-        T.StructField("generated_text", T.StringType()),
-    ]
-)
+TEXT_GENERATION_SCHEMA = T.StructType([
+    T.StructField("prompt", T.StringType()),
+    T.StructField("generated_text", T.StringType()),
+])
 
 # Schema for an individual trace step.
-TRACE_STEP_SCHEMA = T.StructType(
-    [
-        T.StructField("step_id", T.StringType()),
-        T.StructField("name", T.StringType()),
-        T.StructField("type", T.StringType()),
-        T.StructField("start_timestamp", T.TimestampType()),
-        T.StructField("end_timestamp", T.TimestampType()),
-        T.StructField("retrieval", RETRIEVAL_SCHEMA),
-        T.StructField("text_generation", TEXT_GENERATION_SCHEMA),
-    ]
-)
+TRACE_STEP_SCHEMA = T.StructType([
+    T.StructField("step_id", T.StringType()),
+    T.StructField("name", T.StringType()),
+    T.StructField("type", T.StringType()),
+    T.StructField("start_timestamp", T.TimestampType()),
+    T.StructField("end_timestamp", T.TimestampType()),
+    T.StructField("retrieval", RETRIEVAL_SCHEMA),
+    T.StructField("text_generation", TEXT_GENERATION_SCHEMA),
+])
 
 # Schema of the "trace" field in the final request logs table.
-TRACE_SCHEMA = T.StructType(
-    [
-        T.StructField("app_version_id", T.StringType()),
-        T.StructField("start_timestamp", T.TimestampType()),
-        T.StructField("end_timestamp", T.TimestampType()),
-        T.StructField("is_truncated", T.BooleanType()),
-        T.StructField("steps", T.ArrayType(TRACE_STEP_SCHEMA)),
-    ]
-)
+TRACE_SCHEMA = T.StructType([
+    T.StructField("app_version_id", T.StringType()),
+    T.StructField("start_timestamp", T.TimestampType()),
+    T.StructField("end_timestamp", T.TimestampType()),
+    T.StructField("is_truncated", T.BooleanType()),
+    T.StructField("steps", T.ArrayType(TRACE_STEP_SCHEMA)),
+])
 
 MESSAGES_SCHEMA = T.ArrayType(MESSAGE_SCHEMA)
 
-REQUEST_SCHEMA = T.StructType(
-    [
-        T.StructField("request_id", T.StringType()),
-        T.StructField("conversation_id", T.StringType()),
-        T.StructField("timestamp", T.TimestampType()),
-        T.StructField("messages", MESSAGES_SCHEMA),
-        T.StructField("last_input", T.StringType()),
-    ]
-)
+REQUEST_SCHEMA = T.StructType([
+    T.StructField("request_id", T.StringType()),
+    T.StructField("conversation_id", T.StringType()),
+    T.StructField("timestamp", T.TimestampType()),
+    T.StructField("messages", MESSAGES_SCHEMA),
+    T.StructField("last_input", T.StringType()),
+])
 
 # Full schema of the final request logs table.
-REQUEST_LOG_SCHEMA = T.StructType(
-    [
-        T.StructField("request", REQUEST_SCHEMA),
-        T.StructField("trace", TRACE_SCHEMA),
-        T.StructField(
-            "output",
-            T.StructType([T.StructField("choices", CHOICES_SCHEMA)]),
-        ),
-    ]
-)
+REQUEST_LOG_SCHEMA = T.StructType([
+    T.StructField("request", REQUEST_SCHEMA),
+    T.StructField("trace", TRACE_SCHEMA),
+    T.StructField("output",  T.StructType([T.StructField("choices", CHOICES_SCHEMA)]),),
+])
 
 
-######################################################################
-# Assessment log schema definitions
-######################################################################
-
-##################### Common schema definitions ######################
-# Schema of the source tags in the assessment log.
 ASSESSMENT_SOURCE_TAGS_SCHEMA = T.MapType(T.StringType(), T.StringType())
+ASSESSMENT_SOURCE_SCHEMA = T.StructType([
+    T.StructField("type", T.StringType()),
+    T.StructField("id", T.StringType()),
+    T.StructField("tags", ASSESSMENT_SOURCE_TAGS_SCHEMA),
+])
 
-# Schema of the source field in the assessment log.
-ASSESSMENT_SOURCE_SCHEMA = T.StructType(
-    [
-        T.StructField("type", T.StringType()),
-        T.StructField("id", T.StringType()),
-        T.StructField("tags", ASSESSMENT_SOURCE_TAGS_SCHEMA),
-    ]
-)
+RATING_VALUE_PROTO_SCHEMA = T.StructType([
+    T.StructField("value", T.BooleanType()),
+    T.StructField("rationale", T.StringType()),
+])
 
-##################### Proto schema definitions #######################
-# Schema of the assessments w.r.t. the proto definitions, which vary slightly from
-# the final table schemas (particularly around the value of the ratings map).
-RATING_VALUE_PROTO_SCHEMA = T.StructType(
-    [
-        T.StructField("value", T.BooleanType()),
-        T.StructField("rationale", T.StringType()),
-    ]
-)
+COMMON_ASSESSMENT_PROTO_SCHEMA = T.StructType([
+    T.StructField("step_id", T.StringType()),
+    T.StructField("ratings", T.MapType(T.StringType(), RATING_VALUE_PROTO_SCHEMA)),
+    T.StructField("free_text_comment", T.StringType()),
+])
 
-COMMON_ASSESSMENT_PROTO_SCHEMA = T.StructType(
-    [
-        T.StructField("step_id", T.StringType()),
-        T.StructField("ratings", T.MapType(T.StringType(), RATING_VALUE_PROTO_SCHEMA)),
-        T.StructField("free_text_comment", T.StringType()),
-    ]
-)
+TEXT_ASSESSMENT_PROTO_SCHEMA = T.StructType([
+    *COMMON_ASSESSMENT_PROTO_SCHEMA,
+    T.StructField("suggested_output", T.StringType()),
+])
 
-TEXT_ASSESSMENT_PROTO_SCHEMA = T.StructType(
-    [
-        *COMMON_ASSESSMENT_PROTO_SCHEMA,
-        T.StructField("suggested_output", T.StringType()),
-    ]
-)
+RETRIEVAL_ASSESSMENT_PROTO_SCHEMA = T.StructType([
+    T.StructField("position", T.IntegerType()),
+    *COMMON_ASSESSMENT_PROTO_SCHEMA,
+])
 
-RETRIEVAL_ASSESSMENT_PROTO_SCHEMA = T.StructType(
-    [
-        T.StructField("position", T.IntegerType()),
-        *COMMON_ASSESSMENT_PROTO_SCHEMA,
-    ]
-)
-
-# Schema of the assessment protos from the inference table's dataframe_records.
 ASSESSMENT_PROTO_SCHEMA = T.ArrayType(
-    T.StructType(
-        [
-            T.StructField("request_id", T.StringType()),
-            T.StructField("step_id", T.StringType()),
-            T.StructField("source", ASSESSMENT_SOURCE_SCHEMA),
-            T.StructField(
-                "text_assessments", T.ArrayType(TEXT_ASSESSMENT_PROTO_SCHEMA)
-            ),
-            T.StructField(
-                "retrieval_assessments", T.ArrayType(RETRIEVAL_ASSESSMENT_PROTO_SCHEMA)
-            ),
-        ]
-    )
+    T.StructType([
+        T.StructField("request_id", T.StringType()),
+        T.StructField("step_id", T.StringType()),
+        T.StructField("source", ASSESSMENT_SOURCE_SCHEMA),
+        T.StructField("text_assessments", T.ArrayType(TEXT_ASSESSMENT_PROTO_SCHEMA)),
+        T.StructField("retrieval_assessments", T.ArrayType(RETRIEVAL_ASSESSMENT_PROTO_SCHEMA)),
+    ])
 )
 
-
-##################### Table schema definitions #######################
-RATING_VALUE_TABLE_SCHEMA = T.StructType(
-    [
-        T.StructField("bool_value", T.BooleanType()),
-        T.StructField("double_value", T.DoubleType()),
-        T.StructField("rationale", T.StringType()),
-    ]
-)
+RATING_VALUE_TABLE_SCHEMA = T.StructType([
+    T.StructField("bool_value", T.BooleanType()),
+    T.StructField("double_value", T.DoubleType()),
+    T.StructField("rationale", T.StringType()),
+])
 
 # Fields of the assessment structs that are common to both text and retrieval assessments.
 COMMON_ASSESSMENT_TABLE_SCHEMA = [
@@ -240,32 +171,26 @@ COMMON_ASSESSMENT_TABLE_SCHEMA = [
 ]
 
 # Schema of text assessments.
-TEXT_ASSESSMENT_TABLE_SCHEMA = T.StructType(
-    [
-        *COMMON_ASSESSMENT_TABLE_SCHEMA,
-        T.StructField("suggested_output", T.StringType()),
-    ]
-)
+TEXT_ASSESSMENT_TABLE_SCHEMA = T.StructType([
+    *COMMON_ASSESSMENT_TABLE_SCHEMA,
+    T.StructField("suggested_output", T.StringType()),
+])
 
 # Schema of retrieval assessments.
-RETRIEVAL_ASSESSMENT_TABLE_SCHEMA = T.StructType(
-    [
-        T.StructField("position", T.IntegerType()),
-        *COMMON_ASSESSMENT_TABLE_SCHEMA,
-    ]
-)
+RETRIEVAL_ASSESSMENT_TABLE_SCHEMA = T.StructType([
+    T.StructField("position", T.IntegerType()),
+    *COMMON_ASSESSMENT_TABLE_SCHEMA,
+])
 
 # Full schema of the final assessment logs table.
-ASSESSMENT_LOG_SCHEMA = T.StructType(
-    [
-        T.StructField("request_id", T.StringType()),
-        T.StructField("step_id", T.StringType()),
-        T.StructField("source", ASSESSMENT_SOURCE_SCHEMA),
-        T.StructField("timestamp", T.TimestampType()),
-        T.StructField("text_assessment", TEXT_ASSESSMENT_TABLE_SCHEMA),
-        T.StructField("retrieval_assessment", RETRIEVAL_ASSESSMENT_TABLE_SCHEMA),
-    ]
-)
+ASSESSMENT_LOG_SCHEMA = T.StructType([
+    T.StructField("request_id", T.StringType()),
+    T.StructField("step_id", T.StringType()),
+    T.StructField("source", ASSESSMENT_SOURCE_SCHEMA),
+    T.StructField("timestamp", T.TimestampType()),
+    T.StructField("text_assessment", TEXT_ASSESSMENT_TABLE_SCHEMA),
+    T.StructField("retrieval_assessment", RETRIEVAL_ASSESSMENT_TABLE_SCHEMA),
+])
 
 
 
@@ -461,12 +386,9 @@ def dedup_assessment_logs(
         _ROW_NUM_COL, _TRUNCATED_TIME_COL
     )
 
-
-
 # COMMAND ----------
 
 # DBTITLE 1,Unpack the payloads
-
 # Unpack the payloads
 payload_df = spark.table(inference_table_uc_fqn)
 request_logs, raw_assessment_logs = unpack_and_split_payloads(payload_df)
@@ -485,12 +407,16 @@ display(deduped_assessments_df)
 
 # COMMAND ----------
 
-request_logs.write.format("delta").option("mergeSchema", "true").mode(
-    "overwrite"
-).saveAsTable(request_log_output_uc_fqn)
-deduped_assessments_df.write.format("delta").option("mergeSchema", "true").mode(
-    "overwrite"
-).saveAsTable(assessment_log_output_uc_fqn)
+(
+    request_logs.write.format("delta")
+    .option("mergeSchema", "true").mode("overwrite")
+    .saveAsTable(request_log_output_uc_fqn)
+)
+(
+    deduped_assessments_df.write.format("delta")
+    .option("mergeSchema", "true").mode("overwrite")
+    .saveAsTable(assessment_log_output_uc_fqn)
+)
 
 # COMMAND ----------
 

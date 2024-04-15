@@ -22,9 +22,7 @@ import yaml
 MODEL_SERVING_ENDPOINT_NAME = "databricks-dbrx-instruct"
 
 # Connect the OpenAI client to Databricks Model Serving
-API_ROOT = (
-    dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
-)
+API_ROOT = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
 API_TOKEN = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
 os.environ["OPENAI_API_KEY"] = API_TOKEN
 os.environ["OPENAI_BASE_URL"] = f"{API_ROOT}/serving-endpoints/"
@@ -41,24 +39,16 @@ client = OpenAI()
 # COMMAND ----------
 
 rag_config = rag.RagConfig("2_rag_chain.yaml")
-
 index_delta_table = rag_config.get("index_delta_table")
-# parsed_docs_table = rag_config.get("parsed_docs_table")
-
 chunks_df = spark.table(index_delta_table)
 display(chunks_df)
-
-# docs_df = spark.table(parsed_docs_table)
-# display(docs_df)
 
 chunk_text_key = rag_config.get("vector_search_schema").get("chunk_text")
 chunk_id_key = rag_config.get("vector_search_schema").get("primary_key")
 doc_uri_key =  rag_config.get("vector_search_schema").get("document_source")
 
-# Load to JSON
-json_df = chunks_df.toJSON().collect()
-
 parsed_json_chunks = []
+json_df = chunks_df.toJSON().collect()
 for row in json_df:
     parsed_row = json.loads(row)
     parsed_json_chunks.append(parsed_row)
@@ -108,11 +98,8 @@ def generate_question(chunk_row):
     response = client.chat.completions.create(
                 model=MODEL_SERVING_ENDPOINT_NAME,
                 messages=[
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                        "content": prompt
-                }
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
                 ],
                 temperature=1.0
             )
@@ -130,17 +117,14 @@ print(generate_question(parsed_json_chunks[0]))
 
 # Try 4 times if the question contains chunk
 MAX_TRIES = 4
-# Specify the number of threads to use
 NUM_THREADS = 7
 
+# TODO: should we make this spark-y instead of multithreading?
 def process_one_chunk(row):
-    # print(type(row))
-    
     print(f"Trying for doc `{row[doc_uri_key]}` chunk_id {row[chunk_id_key]}")
     tries = 0
     try: 
         gen_questions = generate_question(row)
-        # print(gen_questions)
         while "chunk" in gen_questions['question'] and tries < MAX_TRIES:
             tries = tries + 1
             print("wrote question with chunk in it, trying again")
@@ -148,17 +132,13 @@ def process_one_chunk(row):
                 
         out_data = {f'{chunk_id_key}': row[chunk_id_key]}
         out_data['question'] = gen_questions['question']
-        # print(gen_questions)
         return out_data
     except Exception as e:
         print(f"failed to parse output for doc `{row[doc_uri_key]}` chunk_id {row[chunk_id_key]}")
 
-# Create a ThreadPoolExecutor
+# Create a ThreadPoolExecutor, wait for all tasks to complete and get the results
 with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-    # Submit the processing function for each item in parallel
     futures = [executor.submit(process_one_chunk, row) for row in parsed_json_chunks]
-
-    # Wait for all tasks to complete and get the results
     synthetic_data_raw = [future.result() for future in concurrent.futures.as_completed(futures)]
 
 # Remove failed records
@@ -171,7 +151,6 @@ synthetic_data_raw = [x for x in synthetic_data_raw if x is not None]
 
 # COMMAND ----------
 
-
 # Join generated questions back to the chunks to get the chunk text
 synthetic_questions_df = spark.read.json(spark.sparkContext.parallelize(synthetic_data_raw)).withColumnRenamed(chunk_id_key, chunk_id_key+"_")
 synthetic_questions_df = synthetic_questions_df.join(chunks_df, chunks_df[chunk_id_key] == synthetic_questions_df[chunk_id_key+"_"], 'inner').drop(chunk_id_key+"_")
@@ -182,12 +161,9 @@ synthetic_eval_set = synthetic_questions_df.select(
     col("question").alias("request"),
     array(
         named_struct(
-            lit("chunk_id"),
-            col(chunk_id_key),
-            lit("doc_uri"),
-            col(doc_uri_key),
-            lit("content"),
-            col(chunk_text_key),
+            lit("chunk_id"), col(chunk_id_key),
+            lit("doc_uri"), col(doc_uri_key),
+            lit("content"), col(chunk_text_key),
         )
     ).alias("expected_retrieval_context"),
 )
@@ -195,13 +171,10 @@ synthetic_eval_set = synthetic_questions_df.select(
 display(synthetic_eval_set)
 
 # Write to UC
-uc_catalog = "rag"
-uc_schema = "ericp_cummins"
-
-synthetic_eval_set_table_uc_fqn = f"{uc_catalog}.{uc_schema}.`synthetic_eval_set`"
-synthetic_eval_set.write.format("delta").mode("overwrite").saveAsTable(
-    synthetic_eval_set_table_uc_fqn
-)
+uc_catalog = "josh_melton" # TODO: make dynamic
+uc_schema = "rag_eval"
+synthetic_eval_set_table_uc_fqn = f"{uc_catalog}.{uc_schema}.`synthetic_eval_set`" # TODO: dynamic?
+synthetic_eval_set.write.format("delta").mode("overwrite").saveAsTable(synthetic_eval_set_table_uc_fqn)
 
 # COMMAND ----------
 
@@ -211,9 +184,10 @@ synthetic_eval_set.write.format("delta").mode("overwrite").saveAsTable(
 
 # COMMAND ----------
 
-uc_catalog = "rag"
-uc_schema = "ericp_cummins"
-model_name = "pdf_bot_cummins"
+# TODO: set this dynamically from config file
+uc_catalog = "josh_melton"
+uc_schema = "rag_eval"
+model_name = "rag_eval_service_tickets"
 version = 1
 
 model_fqn = f"{uc_catalog}.{uc_schema}.{model_name}"
@@ -231,7 +205,7 @@ import yaml
 config_json = {
     "assessment_judges": [
         {
-            "judge_name": "databricks_eval_dbrx",
+            "judge_name": "databricks_eval_dbrx", # TODO: make this dynamic
             "endpoint_name": "endpoints:/databricks-dbrx-instruct",
             "assessments": [
                 "harmful",
@@ -247,15 +221,8 @@ config_json = {
 
 config_yml = yaml.dump(config_json)
 
-############
 # Run evaluation, logging the results to a sub-run of the chain's MLflow run
-############
 evaluation_results = rag_eval.evaluate(eval_set_table_name=synthetic_eval_set_table_uc_fqn, model_uri=model_uri, config=config_yml)
-
-
-# COMMAND ----------
-
-
 
 # COMMAND ----------
 
@@ -265,7 +232,7 @@ evaluation_results = rag_eval.evaluate(eval_set_table_name=synthetic_eval_set_ta
 # COMMAND ----------
 
 def query_chain(question):
-  endpoint_name = "rag_studio_rag-ericp_cummins-pdf_bot_cummins"
+  endpoint_name = "rag_studio_rag-ericp_cummins-pdf_bot_cummins" # TODO: make this dynamic
   API_TOKEN = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
 
   model_input_sample = {
@@ -298,51 +265,15 @@ with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
     # Wait for all tasks to complete and get the results
     outputs = [future.result() for future in concurrent.futures.as_completed(futures)]
 
-
 # COMMAND ----------
 
 # MAGIC %md Run the `5 - Get Inference Table Logs` Notebook first
 
 # COMMAND ----------
 
-############
-# UC FQN to the Inference Table
-# You can find this from the chain's Model Serving Endpoint
-############
-
-uc_catalog = 'rag'
-uc_schema = 'ericp_cummins'
-
-# dbutils.widgets.text(
-#     "inference_table_uc_fqn",
-#     label="1. Inference Table UC table",
-#     defaultValue="catalog.schema.inference_table",
-# )
-inference_table_uc_fqn = f"{uc_catalog}.{uc_schema}.`rag_studio-pdf_bot_cummins_payload`"
-############
-# Specify UC FQN to output the `request_log` table to
-############
-# dbutils.widgets.text(
-#     "request_log_output_uc_fqn",
-#     label="2a. Request Log output UC table",
-#     defaultValue="catalog.schema.request_log",
-# )
-# request_log_output_uc_fqn = dbutils.widgets.get("request_log_output_uc_fqn")
-request_log_output_uc_fqn = f"{uc_catalog}.{uc_schema}.`rag_studio-pdf_bot_cummins_request_log`"
-
-
-############
-# Specify UC FQN to output the `assessment_log` table to
-############
-# dbutils.widgets.text(
-#     "assessment_log_output_uc_fqn",
-#     label="2b. Assessment Log output UC table",
-#     defaultValue="catalog.schema.assessment_log",
-# )
-# assessment_log_output_uc_fqn = dbutils.widgets.get("assessment_log_output_uc_fqn")
-assessment_log_output_uc_fqn = f"{uc_catalog}.{uc_schema}.`rag_studio-pdf_bot_cummins_assessment_log`"
-
-
+inference_table_uc_fqn = f"{uc_catalog}.{uc_schema}.`rag_studio-rag_eval_payload`" # TODO: dynamic
+request_log_output_uc_fqn = f"{uc_catalog}.{uc_schema}.`rag_studio-rag_eval_request_log`"
+assessment_log_output_uc_fqn = f"{uc_catalog}.{uc_schema}.`rag_studio-rag_eval_assessment_log`"
 
 # COMMAND ----------
 
@@ -351,8 +282,5 @@ display(requests_df)
 
 # COMMAND ----------
 
-
-uc_catalog = 'rag'
-uc_schema = 'ericp_cummins'
-model_name = f"{uc_catalog}.{uc_schema}.pdf_bot_cummins"
+# model_name = f"{uc_catalog}.{uc_schema}.pdf_bot_cummins" # TODO: dynamic
 rag_studio.enable_trace_reviews(model_name=model_name) # request_ids=["d36b3691-6376-46f7-90dc-9b8bdfdf637e"])

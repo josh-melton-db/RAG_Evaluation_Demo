@@ -25,9 +25,6 @@ from datetime import timedelta
 from typing import List
 import warnings
 
-# Init workspace client
-w = WorkspaceClient()
-
 # COMMAND ----------
 
 # Source and Target Configuration
@@ -90,6 +87,8 @@ chunked_docs.display()
 # COMMAND ----------
 
 # DBTITLE 1,Create Vector Search Index
+w = WorkspaceClient()
+
 # If index already exists, re-sync
 try:
     w.vector_search_indexes.sync_index(index_name=index_name)
