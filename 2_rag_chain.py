@@ -1,15 +1,16 @@
 # Databricks notebook source
+# MAGIC %md
+# MAGIC NOTE: Use the yml printed in the last cell of the previous notebook in configure 2_rag_chain.yaml to point your chain to the Vector Index you created
+
+# COMMAND ----------
+
 # DBTITLE 1,Databricks Rag Studio Installer
 # MAGIC %run ./wheel_installer
 
 # COMMAND ----------
 
 # MAGIC %pip install --quiet --upgrade databricks-vectorsearch
-
-# COMMAND ----------
-
-# Before logging this chain using the driver notebook, you need to comment out this line.
-# dbutils.library.restartPython() 
+# MAGIC %restart_python
 
 # COMMAND ----------
 
@@ -131,7 +132,7 @@ model_input_sample = {
     "messages": [
         {
             "role": "user",
-            "content": "What is ARES?",
+            "content": "What might cause delays in the prodution line inspection process?",
         }
     ]
 }
@@ -144,41 +145,4 @@ rag.set_chain(chain)
 
 # COMMAND ----------
 
-# MAGIC %md
-# MAGIC ## Experimental: view trace locally
-# MAGIC
-# MAGIC ⚠️⚠️ 🐛🐛 Experimental features likely have bugs! 🐛🐛 ⚠️⚠️
-# MAGIC
-# MAGIC We are actively improving the trace logging schema - the schema will change in the next release.
 
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC
-# MAGIC **IMPORTANT: This code must be commented out in order to log the model**
-
-# COMMAND ----------
-
-# DBTITLE 1,RAG Experimental Execution Command
-# %run ./RAG_Experimental_Code
-
-# COMMAND ----------
-
-# DBTITLE 1,Escaped JSON Display Generator
-
-# import json
-# import html
-
-# json_trace = experimental_get_json_trace(chain, model_input_sample)
-
-# json_string = json.dumps(json_trace, indent=4)
-
-# # Escape HTML characters to avoid XSS or rendering issues
-# escaped_json_string = html.escape(json_string)
-
-# # Generate HTML with the escaped JSON inside <pre> and <code> tags
-# pretty_json_html = f"<html><body><pre><code>{escaped_json_string}</code></pre></body></html>"
-
-# # To use the HTML string in a context that renders HTML, 
-# # such as a web application or a notebook cell that supports HTML output
-# displayHTML(pretty_json_html)
