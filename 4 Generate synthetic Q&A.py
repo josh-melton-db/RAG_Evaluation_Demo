@@ -232,7 +232,7 @@ evaluation_results = rag_eval.evaluate(eval_set_table_name=synthetic_eval_set_ta
 # COMMAND ----------
 
 def query_chain(question):
-  endpoint_name = "rag_studio_rag-ericp_cummins-pdf_bot_cummins" # TODO: make this dynamic
+  endpoint_name = "rag_studio_josh_melton-rag_eval-rag_eval_service_tickets" # TODO: make this dynamic
   API_TOKEN = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
 
   model_input_sample = {

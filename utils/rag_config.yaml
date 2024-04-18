@@ -1,0 +1,18 @@
+chunk_overlap: 75
+chunk_size: 425
+demo_config:
+  category_ls:
+  - Overheated Turbocharger
+  - Fuel System Fault
+  - Worn Cylinder Head
+  endpoint_name: rag_studio-josh_melton_databricks_com-field_service_tickets
+  model_fqdn: default.josh_melton_databricks_com_rag_eval.rag_studio-{source_table_name}
+  source_column_name: issue_description
+  source_table: default.generated_rag_demo.field_service_tickets
+  target_schema: josh_melton_databricks_com_rag_eval
+  text_domain: Field service maintenance tickets for a diesel engine manufacturer
+  vector_search_endpoint_name: one-env-shared-endpoint-5
+document_source: ticket_number
+fmapi_endpoint: databricks-bge-large-en
+k: 3
+primary_key: chunk_id

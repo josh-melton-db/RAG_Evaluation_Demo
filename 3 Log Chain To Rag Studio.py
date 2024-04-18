@@ -183,12 +183,16 @@ for deployment in deployments:
 uc_catalog = "josh_melton"
 uc_schema = "rag_eval"
 model_name = "rag_eval_service_tickets"
-uc_model_fqdn = f"{uc_catalog}.{uc_schema}.{model_name}" 
+uc_model_fqdn = f"{uc_catalog}.{uc_schema}.{model_name}"
 
 from databricks.rag_studio import set_permissions
 from databricks.rag_studio.entities import PermissionLevel
 
 set_permissions(uc_model_fqdn, ["josh.melton@databricks.com"], PermissionLevel.CAN_MANAGE)
+
+# COMMAND ----------
+
+set_permissions(uc_model_fqdn, ["josh.melton@databricks.com"], PermissionLevel.CAN_REVIEW)
 
 # COMMAND ----------
 
