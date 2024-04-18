@@ -75,7 +75,7 @@ def generate_symptoms(chat_model, categories, text_domain):
     symptoms_sets = {}
     for category in categories:
         symptom_ls = []
-        num_documents = random.randint(5, 10)
+        num_documents = random.randint(3, 10)
         for _ in range(num_documents):
             symptom = generate_symptom(chat_model, text_domain, category, symptom_ls)
             symptom_ls.append(symptom)
@@ -100,7 +100,7 @@ def generate_documents(chat_model, symptom_sets):
         data_dict[category] = document_ls
     return data_dict
 
-def create_df(data_dict, text_col_name):
+def create_df(spark, data_dict, text_col_name):
     data = [(category, item) for category, items in data_dict.items() for item in items]
     schema = StructType([
         StructField("category", StringType(), True),
@@ -108,23 +108,25 @@ def create_df(data_dict, text_col_name):
     ])
     return spark.createDataFrame(data, schema=schema)
 
-def reset_tables(spark, catalog, schema, tried=False):
+def reset_tables(spark, catalog, schema, target_schema, tried=False):
     try:
         spark.sql(f"drop schema if exists {catalog}.{schema} CASCADE")
-        spark.sql(f'''create schema {catalog}.{source_schema}''')
-        except Exception as e:
-    if 'NO_SUCH_CATALOG_EXCEPTION' in str(e) and not tried:
-            spark.sql(f'create catalog {config["catalog"]}')
-            reset_tables(spark, catalog, schema, True)
+        spark.sql(f"drop schema if exists {catalog}.{target_schema} CASCADE")
+        spark.sql(f'''create schema {catalog}.{schema}''')
+        spark.sql(f'''create schema {catalog}.{target_schema}''')
+    except Exception as e:
+        if 'NO_SUCH_CATALOG_EXCEPTION' in str(e) and not tried:
+                spark.sql(f'create catalog {config["catalog"]}')
+                reset_tables(spark, catalog, schema, True)
         else:
             raise
 
-def generate_data(chat_model, text_domain, category_ls, text_col_name, text_id_name, catalog, schema, table):
+def generate_data(chat_model, text_domain, category_ls, text_col_name, text_id_name, catalog, schema, table, spark):
     print('Generating data, this may take a couple minutes')
     categories = generate_categories(chat_model, text_domain, category_ls)
     symptoms = generate_symptoms(chat_model, categories, text_domain)
     documents = generate_documents(chat_model, symptoms) 
-    df = create_df(documents, source_column_name)
+    df = create_df(spark, documents, text_col_name)
     df = df.withColumn(text_id_name, expr("substring(md5(cast(rand() as string)), 1, 7)"))
     source_table = f"{catalog}.{schema}.{table}"
     df.write.saveAsTable(source_table)

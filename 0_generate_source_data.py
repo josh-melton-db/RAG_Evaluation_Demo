@@ -1,5 +1,5 @@
 # Databricks notebook source
-# Select your catalog, source schema, table, and vector endpoint names. Optionally, pass target_schema to get_config() below
+# Set your catalog, source schema, table, and vector endpoint names. Optionally, pass target_schema to get_config() below
 catalog = "default"
 schema = "generated_rag_demo"
 table = "field_service_tickets"
@@ -22,8 +22,9 @@ config = get_config(catalog, schema, table, text_id_name, text_col_name,
 save_config(dbutils, config)
 
 chat_model = ChatDatabricks(endpoint="databricks-dbrx-instruct", max_tokens = 200)
-reset_tables(spark, catalog, schema)
-generate_data(chat_model, text_domain, category_ls, text_col_name, catalog, schema, table)
+reset_tables(spark, catalog, schema, config["demo_config"]["target_schema"])
+generate_data(chat_model, text_domain, category_ls, text_col_name, text_id_name, catalog, schema, table, spark)
+spark.read.table(f"{catalog}.{schema}.{table}").display()
 
 # COMMAND ----------
 
