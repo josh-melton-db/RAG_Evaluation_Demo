@@ -1,16 +1,11 @@
 # Databricks notebook source
-# MAGIC %md
-# MAGIC NOTE: Use the yml printed in the last cell of the previous notebook in configure 2_rag_chain.yaml to point your chain to the Vector Index you created
-
-# COMMAND ----------
-
 # DBTITLE 1,Databricks Rag Studio Installer
-# MAGIC %run ./wheel_installer
+# MAGIC %run ./utils/wheel_installer
 
 # COMMAND ----------
 
 # MAGIC %pip install --quiet --upgrade databricks-vectorsearch
-# MAGIC %restart_python
+# MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
 
@@ -45,8 +40,7 @@ def extract_chat_history(chat_messages_array):
 ############
 # Get the configuration YAML
 ############
-rag_config = rag.RagConfig("2_rag_chain.yaml")
-
+rag_config = rag.RagConfig("configs/rag_config.yaml")
 
 ############
 # Connect to the Vector Search Index
@@ -56,18 +50,17 @@ vs_index = vs_client.get_index(
     endpoint_name=rag_config.get("vector_search_endpoint_name"),
     index_name=rag_config.get("vector_search_index"),
 )
-vector_search_schema = rag_config.get("vector_search_schema")
 
 ############
 # Turn the Vector Search index into a LangChain retriever
 ############
 vector_search_as_retriever = DatabricksVectorSearch(
     vs_index,
-    text_column=vector_search_schema.get("chunk_text"),
+    text_column=rag_config.get("demo_config").get("source_column_name"),
     columns=[
-        vector_search_schema.get("primary_key"),
-        vector_search_schema.get("chunk_text"),
-        vector_search_schema.get("document_source"),
+        "category",
+        rag_config.get("chunk_column_name"),
+        rag_config.get("document_source_id"),
     ],
 ).as_retriever(search_kwargs=rag_config.get("vector_search_parameters"))
 
@@ -77,11 +70,9 @@ vector_search_as_retriever = DatabricksVectorSearch(
 # 2. Enable evaluation suite to measure the retriever
 ############
 rag.set_vector_search_schema(
-    primary_key=vector_search_schema.get("primary_key"),
-    text_column=vector_search_schema.get("chunk_text"),
-    doc_uri=vector_search_schema.get(
-        "document_source"
-    ),  # Review App uses `doc_uri` to display chunks from the same document in a single view
+    primary_key="chunk_id", 
+    text_column=rag_config.get("chunk_column_name"), 
+    doc_uri=rag_config.get("document_source_id"),  # Review App uses `doc_uri` to display chunks from the same document in a single view
 )
 
 ############
@@ -91,7 +82,6 @@ def format_context(docs):
     chunk_template = rag_config.get("chunk_template")
     chunk_contents = [chunk_template.format(chunk_text=d.page_content) for d in docs]
     return "".join(chunk_contents)
-
 
 ############
 # Prompt Template for generation
@@ -106,7 +96,7 @@ prompt = PromptTemplate(
 ############
 model = ChatDatabricks(
     endpoint=rag_config.get("chat_endpoint"),
-    extra_params=rag_config.get("chat_endpoint_parameters"),
+    extra_params=rag_config.get("chat_model_parameters"),
 )
 
 ############
@@ -132,11 +122,11 @@ model_input_sample = {
     "messages": [
         {
             "role": "user",
-            "content": "What might cause delays in the prodution line inspection process?",
+            "content": "What are some issues that might come up with my turbocharger?",
         }
     ]
 }
-print(chain.invoke(model_input_sample))
+# print(chain.invoke(model_input_sample)) # comment this out before running the next notebook
 
 ############
 # Tell RAG Studio about the chain - required for logging, but not local testing of this chain

@@ -8,40 +8,57 @@ from pyspark.sql.functions import expr
 
 # TODO: reduce number of args - use kwargs?
 def get_config(catalog, source_schema, source_table_name, source_id_name, source_column_name, vs_endpoint,
-               text_domain, category_ls, target_schema=None, num_docs=3, chunk_size_tokens=425,
-               chunk_overlap_tokens=75, fmapi_endpoint="databricks-bge-large-en"):
+               target_schema=None, num_docs=3, chunk_size_tokens=300, chunk_overlap_tokens=100,
+               embedding_endpoint="databricks-bge-large-en", chat_model = "databricks-dbrx-instruct"):
     w = WorkspaceClient()
     username = w.current_user.me().user_name.replace('@', '_').replace('.', '_')
     source_table = f"{catalog}.{source_schema}.{source_table_name}"
     chunk_table = f"{catalog}.{source_schema}.{source_table_name}_chunked"
+    chunk_column_name = source_column_name + "_chunk"
     chunk_id_column_name = "chunk_id"
     index_name = f"{catalog}.{source_schema}.{source_table_name}_index" # TODO: unique per user
+    # TODO: automatically retrieve vs endpoint via sdk?
 
     if not target_schema:
         target_schema = f"{username}_rag_eval"
-    model_name = "rag_studio-{source_table_name}"
-    uc_model_fqdn = f"{catalog}.{target_schema}.{model_name}"
+    model_name = f"rag_studio-{source_table_name}"
+    model_fqdn = f"{catalog}.{target_schema}.{model_name}"
     endpoint_name = f"rag_studio-{username}-{source_table_name}"
     synthetic_eval_set_table_uc_fqn = f"{catalog}.{target_schema}.`synthetic_eval_set`"
     inference_table_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{source_table_name}_payload`"
     request_log_output_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{source_table_name}_request_log`"
     assessment_log_output_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{source_table_name}_assessment_log`"
+    
+    chat_prompt = "You are a trusted assistant that helps answer questions about troubleshooting diesel engines based only on the provided information. If you do not know the answer to a question, you truthfully say you do not know.  Here is some context which might or might not help you answer: {context}.  Answer directly, do not repeat the question, do not start with something like: the answer to the question, do not add AI in front of your answer, do not say: here is the answer, do not mention the context or the question. Based on this history and context, answer this question: {question}."
+    prompt_vars = ["context", "question"]
+    chunk_template = "`{chunk_text}`\n"
 
     return dict(
-        k = num_docs, 
+        embedding_endpoint = embedding_endpoint, 
+        document_source_id = source_id_name,
+        vector_search_endpoint_name = vs_endpoint,
+        vector_search_index = index_name,
+        chunk_column_name = chunk_column_name,
+        chunk_id_column_name = chunk_id_column_name,
+        chunk_template = chunk_template,
         chunk_size = chunk_size_tokens, 
         chunk_overlap = chunk_overlap_tokens, 
-        fmapi_endpoint = fmapi_endpoint, 
-        primary_key = chunk_id_column_name, 
-        document_source = source_id_name,
+        chat_prompt_template = chat_prompt,
+        chat_prompt_template_variables = prompt_vars,
+        vector_search_parameters = dict(
+            k = num_docs, 
+        ),
+        chat_endpoint = chat_model,
+        chat_model_parameters = dict(
+            temperature = 0.01,
+            max_tokens = 500,
+        ),
         demo_config = dict(
             source_table = source_table,
             source_column_name = source_column_name,
-            vector_search_endpoint_name = vs_endpoint,
-            text_domain = text_domain,
-            category_ls = category_ls,
+            chunk_table = chunk_table,
             target_schema = target_schema,
-            model_fqdn = uc_model_fqdn,
+            model_fqdn = model_fqdn,
             endpoint_name = endpoint_name
         ),
     )
@@ -50,7 +67,7 @@ def save_config(dbutils, rag_config, fname="rag_config.yaml"):
     dbx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
     notebook_path = dbx.notebookPath().get()
     folder_path = '/'.join(str(x) for x in notebook_path.split('/')[:-1])
-    with open(f"/Workspace/{folder_path}/utils/{fname}", 'w') as outfile:
+    with open(f"/Workspace/{folder_path}/configs/{fname}", 'w') as outfile:
         yaml.dump(rag_config, outfile, default_flow_style=False)
 
 def generate_category(chat_model, text_domain, category_ls):
@@ -130,5 +147,14 @@ def generate_data(chat_model, text_domain, category_ls, text_col_name, text_id_n
     df = df.withColumn(text_id_name, expr("substring(md5(cast(rand() as string)), 1, 7)"))
     source_table = f"{catalog}.{schema}.{table}"
     df.write.saveAsTable(source_table)
+
+def check_dbr(spark):
+    dbr_majorversion = int(spark.conf.get("spark.databricks.clusterUsageTags.sparkVersion").split(".")[0])
+    return dbr_majorversion >= 14
+
+def get_table_url(table_fqdn, dbutils):
+    split = table_fqdn.split(".")
+    url = f"https://{dbutils.notebook.entry_point.getDbutils().notebook().getContext().browserHostName().get()}/explore/data/{split[0]}/{split[1]}/{split[2]}"
+    return url
 
 
