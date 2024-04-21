@@ -23,37 +23,22 @@ from databricks import rag
 # COMMAND ----------
 
 # DBTITLE 1,Multistage Chat Generator
-############
-# RAG Studio requires your chain to accept an array of OpenAI-formatted messages as a `messages` parameter. Schema: https://docs.databricks.com/en/machine-learning/foundation-models/api-reference.html#chatmessage
-# These helper functions help parse the `messages` array
-############
 # Return the string contents of the most recent message from the user
 def extract_user_query_string(chat_messages_array):
     return chat_messages_array[-1]["content"]
-
 
 # Return the chat history, which is is everything before the last question
 def extract_chat_history(chat_messages_array):
     return chat_messages_array[:-1]
 
-
-############
-# Get the configuration YAML
-############
 rag_config = rag.RagConfig("configs/rag_config.yaml")
-
-############
-# Connect to the Vector Search Index
-############
 vs_client = VectorSearchClient(disable_notice=True)
 vs_index = vs_client.get_index(
     endpoint_name=rag_config.get("vector_search_endpoint_name"),
     index_name=rag_config.get("vector_search_index"),
 )
 
-############
 # Turn the Vector Search index into a LangChain retriever
-############
 vector_search_as_retriever = DatabricksVectorSearch(
     vs_index,
     text_column=rag_config.get("demo_config").get("source_column_name"),
@@ -75,33 +60,25 @@ rag.set_vector_search_schema(
     doc_uri=rag_config.get("document_source_id"),  # Review App uses `doc_uri` to display chunks from the same document in a single view
 )
 
-############
 # Method to format the docs returned by the retriever into the prompt
-############
 def format_context(docs):
     chunk_template = rag_config.get("chunk_template")
     chunk_contents = [chunk_template.format(chunk_text=d.page_content) for d in docs]
     return "".join(chunk_contents)
 
-############
 # Prompt Template for generation
-############
 prompt = PromptTemplate(
     template=rag_config.get("chat_prompt_template"),
     input_variables=rag_config.get("chat_prompt_template_variables"),
 )
 
-############
 # FM for generation
-############
 model = ChatDatabricks(
     endpoint=rag_config.get("chat_endpoint"),
     extra_params=rag_config.get("chat_model_parameters"),
 )
 
-############
 # RAG Chain
-############
 chain = (
     {
         "question": itemgetter("messages") | RunnableLambda(extract_user_query_string),
@@ -115,9 +92,7 @@ chain = (
     | StrOutputParser()
 )
 
-############
 # Test the Chain
-############
 model_input_sample = {
     "messages": [
         {
@@ -128,9 +103,7 @@ model_input_sample = {
 }
 # print(chain.invoke(model_input_sample)) # comment this out before running the next notebook
 
-############
 # Tell RAG Studio about the chain - required for logging, but not local testing of this chain
-############
 rag.set_chain(chain)
 
 # COMMAND ----------
