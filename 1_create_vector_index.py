@@ -38,8 +38,8 @@ embedding_endpoint = rag_config.get("embedding_endpoint")
 chunk_column_name = rag_config.get("chunk_column_name")
 chunk_size = rag_config.get("chunk_size")
 chunk_overlap = rag_config.get("chunk_overlap")
-
 demo_config = rag_config.get("demo_config")
+
 source_table = demo_config.get("source_table")
 source_column_name = demo_config.get("source_column_name")
 chunk_table = demo_config.get("chunk_table")
@@ -59,14 +59,6 @@ def split_char_recursive(content: str) -> List[str]:
 # COMMAND ----------
 
 # DBTITLE 1,Chunk Docs
-tokenizer = AutoTokenizer.from_pretrained("BAAI/bge-large-en-v1.5")
-
-@func.udf(returnType=ArrayType(StringType()), useArrow=useArrow)
-def split_char_recursive(content: str) -> List[str]:
-    text_splitter = CharacterTextSplitter.from_huggingface_tokenizer(tokenizer, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    chunks = text_splitter.split_text(content)
-    return [doc for doc in chunks]
-
 chunked_docs = (
     spark.read.table(source_table)
     .select("*", func.explode(split_char_recursive(func.col(source_column_name))).alias(chunk_column_name))
