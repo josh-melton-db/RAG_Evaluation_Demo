@@ -95,19 +95,19 @@ print(parse_deployment_info(deployment_info))
 
 # COMMAND ----------
 
-rag_studio.enable_trace_reviews(model_name=model_fqdn, request_ids=["528b0a3b-2b25-4e5b-b954-55ace9826839"]) 
+# rag_studio.enable_trace_reviews(model_name=model_fqdn, request_ids=["528b0a3b-2b25-4e5b-b954-55ace9826839"]) 
 
 # COMMAND ----------
 
 # DBTITLE 1,Manage Permissions
-from databricks.rag_studio import set_permissions
-from databricks.rag_studio.entities import PermissionLevel
-from databricks.sdk import WorkspaceClient
+# from databricks.rag_studio import set_permissions
+# from databricks.rag_studio.entities import PermissionLevel
+# from databricks.sdk import WorkspaceClient
 
-w = WorkspaceClient()
-user_name = w.current_user.me().user_name
-set_permissions(model_fqdn, [user_name], PermissionLevel.CAN_MANAGE)
-set_permissions(model_fqdn, [user_name], PermissionLevel.CAN_REVIEW)
+# w = WorkspaceClient()
+# user_name = w.current_user.me().user_name
+# set_permissions(model_fqdn, [user_name], PermissionLevel.CAN_MANAGE)
+# set_permissions(model_fqdn, [user_name], PermissionLevel.CAN_REVIEW)
 
 # COMMAND ----------
 

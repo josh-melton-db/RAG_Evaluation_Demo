@@ -8,7 +8,7 @@ text_id_name = "ticket_number"
 vector_search_endpoint_name = "one-env-shared-endpoint-5"
 
 # Set to True and provide the domain and categories if you'd like to generate new data 
-generate_data_for_demo = True
+generate_data_for_demo = False
 text_domain = "Field service maintenance tickets for a diesel engine manufacturer"
 category_ls = ["Overheated Turbocharger", "Fuel System Fault", "Worn Cylinder Head"]
 
@@ -30,7 +30,7 @@ else:
     folder_path = '/'.join(str(x) for x in notebook_path.split('/')[:-1])
     import pandas as pd
     df = spark.createDataFrame(pd.read_csv("/Workspace/"+folder_path+"/utils/example_data.csv"))
-    df.write.saveAsTable(f"{catalog}.{schema}.{table}")
+    df.write.mode("overwrite").saveAsTable(f"{catalog}.{schema}.{table}")
 spark.read.table(f"{catalog}.{schema}.{table}").display()
 
 # COMMAND ----------

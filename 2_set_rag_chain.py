@@ -18,7 +18,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain.schema.runnable import RunnableLambda
 from operator import itemgetter
-from databricks import rag 
+from databricks import rag
 
 # COMMAND ----------
 

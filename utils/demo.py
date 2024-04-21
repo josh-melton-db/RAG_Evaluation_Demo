@@ -3,11 +3,12 @@ from databricks.sdk import WorkspaceClient
 import re
 import random
 from pyspark.sql.types import StructType, StructField, StringType
-from pyspark.sql.functions import expr
+from pyspark.sql.functions import concat, col, named_struct, lit, array, expr
 import os
 from openai import OpenAI
 import requests
 import concurrent.futures
+import json
 
 # TODO: reduce number of args - use kwargs, dictionary
 def get_config(catalog, source_schema, source_table_name, source_id_name, source_column_name, vs_endpoint,
@@ -176,7 +177,7 @@ def parse_deployment_info(deployment_info):
     Review App: {deployment_info.rag_app_url}"""
     return message
 
-def generate_question(chunk_row, model_endpoint, root, token):
+def generate_question(chunk_row, chunk_text_key, model_endpoint, root, token):
     os.environ["OPENAI_API_KEY"] = token
     os.environ["OPENAI_BASE_URL"] = f"{root}/serving-endpoints/"
     # source: https://thetechbuffet.substack.com/p/evaluate-rag-with-synthetic-data
@@ -202,7 +203,6 @@ def generate_question(chunk_row, model_endpoint, root, token):
 
     system_prompt = "You are an expert at understanding academic research papers.  You are also an expert at generating questions that a human would likely ask about specific content from academic research papers. You pride yourself on your ability to be realistic, yet a bit creative, and you know that a human will evaluate your output, so you put extra effort into following instructions exactly, including only outputing in JSON format as instructed.  You will lose your job if you don't output valid JSON."
     client = OpenAI()
-    client = OpenAI()
     prompt = PROMPT_TEMPLATE.format(context=chunk_row[chunk_text_key])
     response = client.chat.completions.create(
                 model=model_endpoint,
@@ -212,27 +212,24 @@ def generate_question(chunk_row, model_endpoint, root, token):
                 ],
                 temperature=1.0
             )
-    print(response)
     return json.loads(response.choices[0].message.content)
 
-def process_one_chunk(row, chunk_id_key, root, token):
+def process_one_chunk(row, chunk_text_key, chunk_id_key, root, token):
     MAX_TRIES = 4
     model_endpoint = "databricks-dbrx-instruct"
     tries = 0
     try: 
-        gen_questions = generate_question(row, model_endpoint, root, token)
-        while row in gen_questions["question"] and tries < MAX_TRIES:
+        gen_questions = generate_question(row, chunk_text_key, model_endpoint, root, token)
+        while "chunk" in gen_questions["question"] and tries < MAX_TRIES:
             tries = tries + 1
-            gen_questions = generate_question(row, model_endpoint, root, token)    
+            gen_questions = generate_question(row, chunk_text_key, model_endpoint, root, token)
         out_data = {f'{chunk_id_key}': row[chunk_id_key]}
-        out_data['question'] = gen_questions['question']
+        out_data["question"] = gen_questions["question"]
         return out_data
     except Exception as e:
-        print(str(e))
         print(f"failed to parse output for doc `{row[doc_uri_key]}` chunk_id {row[chunk_id_key]}")
 
-
-def generate_questions(chunks_df, chunk_id_key, dbutils):
+def generate_questions(chunks_df, chunk_text_key, chunk_id_key, dbutils):
     NUM_THREADS = 7
     root = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
     token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
@@ -243,23 +240,19 @@ def generate_questions(chunks_df, chunk_id_key, dbutils):
         parsed_json_chunks.append(parsed_row)
     # Create a ThreadPoolExecutor, wait for all tasks to complete and get the results
     with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
-        futures = [executor.submit(process_one_chunk, row, chunk_id_key, root, token) for row in parsed_json_chunks]
-        synthetic_data_raw = [future.result() for future in concurrent.futures.as_completed(futures)]
+        futures = [executor.submit(process_one_chunk, row, chunk_text_key, chunk_id_key, root, token) for row in parsed_json_chunks]
+        return [future.result() for future in concurrent.futures.as_completed(futures)]
 
-    # Remove failed records
-    synthetic_data_raw = [x for x in synthetic_data_raw if x is not None]
-    return synthetic_data_raw
-
-def query_chain(question, endpoint_name):
+def query_chain(question, endpoint_name, root, token):
     model_input_sample = {
         "messages": [{
             "role": "user",
             "content": question,
         }]
     }
-    headers = {"Context-Type": "text/json", "Authorization": f"Bearer {API_TOKEN}"}
+    headers = {"Context-Type": "text/json", "Authorization": f"Bearer {token}"}
     response = requests.post(
-        url=f"{API_ROOT}/serving-endpoints/{endpoint_name}/invocations", json=model_input_sample, headers=headers
+        url=f"{root}/serving-endpoints/{endpoint_name}/invocations", json=model_input_sample, headers=headers
     )
     return json.dumps(response.json())
 
@@ -267,6 +260,24 @@ def load_review_qa(synthetic_data_raw, endpoint_name, dbutils, num_threads = 7):
     root = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
     token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
-        futures = [executor.submit(query_chain, row['question']), endpoint_name, root, token for row in synthetic_data_raw]
+        futures = [executor.submit(query_chain, row['question'], endpoint_name, root, token) for row in synthetic_data_raw]
         outputs = [future.result() for future in concurrent.futures.as_completed(futures)]
 
+def write_synthetic_data(spark, synthetic_data, synthetic_table_name, chunks_df, chunk_id_key, doc_uri_key, chunk_text_key):
+    # Join generated questions back to the chunks to get the chunk text
+    synthetic_questions_df = spark.read.json(spark.sparkContext.parallelize(synthetic_data)).withColumnRenamed(chunk_id_key, chunk_id_key+"_")
+    synthetic_questions_df = synthetic_questions_df.join(chunks_df, chunks_df[chunk_id_key] == synthetic_questions_df[chunk_id_key+"_"], 'inner').drop(chunk_id_key+"_")
+
+    # Format into RAG Studio Evaluation Set schema
+    synthetic_eval_set = synthetic_questions_df.select(
+        concat(lit("synthetic_"), col(chunk_id_key)).alias("request_id"),
+        col("question").alias("request"),
+        array(
+            named_struct(
+                lit("chunk_id"), col(chunk_id_key),
+                lit("doc_uri"), col(doc_uri_key),
+                lit("content"), col(chunk_text_key),
+            )
+        ).alias("expected_retrieval_context"),
+    )
+    synthetic_eval_set.write.format("delta").mode("overwrite").saveAsTable(synthetic_table_name)

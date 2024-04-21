@@ -328,7 +328,7 @@ def dedup_assessment_logs(
         _ROW_NUM_COL, _TRUNCATED_TIME_COL
     )
 
-def get_table_url(table_fqdn):
+def get_table_url(table_fqdn, dbutils):
     split = table_fqdn.split(".")
     url = f"https://{dbutils.notebook.entry_point.getDbutils().notebook().getContext().browserHostName().get()}/explore/data/{split[0]}/{split[1]}/{split[2]}"
     return url
