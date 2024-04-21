@@ -17,15 +17,17 @@ chunk_column_name: issue_description_chunk
 chunk_id_column_name: chunk_id
 chunk_overlap: 100
 chunk_size: 300
-chunk_template: '`{chunk_text}`
-
-  '
+chunk_template: '`{chunk_text}`'
 demo_config:
+  assessment_log_output_uc_fqn: default.josh_melton_databricks_com_rag_eval.`rag_studio-field_service_tickets_chain_assessment_log`
   chunk_table: default.generated_rag_demo.field_service_tickets_chunked
   endpoint_name: rag_studio-josh_melton_databricks_com-field_service_tickets
-  model_fqdn: default.josh_melton_databricks_com_rag_eval.rag_studio-{source_table_name}
+  inference_table_uc_fqn: default.josh_melton_databricks_com_rag_eval.`rag_studio-field_service_tickets_chain_payload`
+  model_fqdn: default.josh_melton_databricks_com_rag_eval.field_service_tickets_chain
+  request_log_output_uc_fqn: default.josh_melton_databricks_com_rag_eval.`rag_studio-field_service_tickets_chain_request_log`
   source_column_name: issue_description
   source_table: default.generated_rag_demo.field_service_tickets
+  synthetic_eval_set_table_uc_fqn: default.josh_melton_databricks_com_rag_eval.`synthetic_eval_set`
   target_schema: josh_melton_databricks_com_rag_eval
 document_source_id: ticket_number
 embedding_endpoint: databricks-bge-large-en
