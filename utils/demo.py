@@ -4,9 +4,12 @@ import re
 import random
 from pyspark.sql.types import StructType, StructField, StringType
 from pyspark.sql.functions import expr
+import os
+from openai import OpenAI
+import requests
+import concurrent.futures
 
-
-# TODO: reduce number of args - use kwargs?
+# TODO: reduce number of args - use kwargs, dictionary
 def get_config(catalog, source_schema, source_table_name, source_id_name, source_column_name, vs_endpoint,
                target_schema=None, num_docs=3, chunk_size_tokens=300, chunk_overlap_tokens=100,
                embedding_endpoint="databricks-bge-large-en", chat_model = "databricks-dbrx-instruct"):
@@ -21,17 +24,17 @@ def get_config(catalog, source_schema, source_table_name, source_id_name, source
 
     if not target_schema:
         target_schema = f"{username}_rag_eval"
-    model_name = f"rag_studio-{source_table_name}"
+    model_name = f"{source_table_name}_chain"
     model_fqdn = f"{catalog}.{target_schema}.{model_name}"
     endpoint_name = f"rag_studio-{username}-{source_table_name}"
     synthetic_eval_set_table_uc_fqn = f"{catalog}.{target_schema}.`synthetic_eval_set`"
-    inference_table_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{source_table_name}_payload`"
-    request_log_output_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{source_table_name}_request_log`"
-    assessment_log_output_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{source_table_name}_assessment_log`"
+    inference_table_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{model_name}_payload`" 
+    request_log_output_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{model_name}_request_log`"
+    assessment_log_output_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{model_name}_assessment_log`"
     
     chat_prompt = "You are a trusted assistant that helps answer questions about troubleshooting diesel engines based only on the provided information. If you do not know the answer to a question, you truthfully say you do not know.  Here is some context which might or might not help you answer: {context}.  Answer directly, do not repeat the question, do not start with something like: the answer to the question, do not add AI in front of your answer, do not say: here is the answer, do not mention the context or the question. Based on this history and context, answer this question: {question}."
     prompt_vars = ["context", "question"]
-    chunk_template = "`{chunk_text}`\n"
+    chunk_template = "`{chunk_text}`"
 
     return dict(
         embedding_endpoint = embedding_endpoint, 
@@ -59,7 +62,11 @@ def get_config(catalog, source_schema, source_table_name, source_id_name, source
             chunk_table = chunk_table,
             target_schema = target_schema,
             model_fqdn = model_fqdn,
-            endpoint_name = endpoint_name
+            endpoint_name = endpoint_name,
+            synthetic_eval_set_table_uc_fqn = synthetic_eval_set_table_uc_fqn,
+            inference_table_uc_fqn = inference_table_uc_fqn,
+            request_log_output_uc_fqn = request_log_output_uc_fqn,
+            assessment_log_output_uc_fqn = assessment_log_output_uc_fqn,
         ),
     )
 
@@ -138,7 +145,7 @@ def reset_tables(spark, catalog, schema, target_schema, tried=False):
         else:
             raise
 
-def generate_data(chat_model, text_domain, category_ls, text_col_name, text_id_name, catalog, schema, table, spark):
+def generate_source_data(chat_model, text_domain, category_ls, text_col_name, text_id_name, catalog, schema, table, spark):
     print('Generating data, this may take a couple minutes')
     categories = generate_categories(chat_model, text_domain, category_ls)
     symptoms = generate_symptoms(chat_model, categories, text_domain)
@@ -157,4 +164,109 @@ def get_table_url(table_fqdn, dbutils):
     url = f"https://{dbutils.notebook.entry_point.getDbutils().notebook().getContext().browserHostName().get()}/explore/data/{split[0]}/{split[1]}/{split[2]}"
     return url
 
+from mlflow.utils import databricks_utils as du
+os.environ['MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR'] = "false"
+
+# Temporary workarounds given the Private Preview state of the product
+def parse_deployment_info(deployment_info):
+    browser_url = du.get_browser_hostname()
+    message = f"""Deployment of {deployment_info.model_name} version {deployment_info.model_version} initiated.  This can take up to 15 minutes and the Review App & REST API will not work until this deployment finishes. 
+
+    View status: https://{browser_url}/ml/endpoints/{deployment_info.endpoint_name}
+    Review App: {deployment_info.rag_app_url}"""
+    return message
+
+def generate_question(chunk_row, model_endpoint, root, token):
+    os.environ["OPENAI_API_KEY"] = token
+    os.environ["OPENAI_BASE_URL"] = f"{root}/serving-endpoints/"
+    # source: https://thetechbuffet.substack.com/p/evaluate-rag-with-synthetic-data
+    PROMPT_TEMPLATE = """\ 
+    Your task is to formulate exactly 1 question from given context.
+
+    The question must satisfy the rules given below:
+    1.The question should make sense to humans even when read without the given context.
+    2.The question should be fully answered from the given context.
+    3.The question should be framed from a part of context that contains important information. It can also be from tables,code,etc.
+    4.The answer to the question should not contain any links.
+    5.The question should be of moderate difficulty.
+    6.The question must be reasonable and must be understood and responded by humans.
+    7.Do no use phrases like 'provided context', 'context', etc in the question
+    8.Avoid framing question using word "and" that can be decomposed into more than one question.
+    9.The question should not contain more than 10 words, make of use of abbreviation wherever possible.
+        
+    context: {context}
+
+    Please return your output as a JSON as follows:
+
+    {{"question": "question for the chunk"}}"""
+
+    system_prompt = "You are an expert at understanding academic research papers.  You are also an expert at generating questions that a human would likely ask about specific content from academic research papers. You pride yourself on your ability to be realistic, yet a bit creative, and you know that a human will evaluate your output, so you put extra effort into following instructions exactly, including only outputing in JSON format as instructed.  You will lose your job if you don't output valid JSON."
+    client = OpenAI()
+    client = OpenAI()
+    prompt = PROMPT_TEMPLATE.format(context=chunk_row[chunk_text_key])
+    response = client.chat.completions.create(
+                model=model_endpoint,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=1.0
+            )
+    print(response)
+    return json.loads(response.choices[0].message.content)
+
+def process_one_chunk(row, chunk_id_key, root, token):
+    MAX_TRIES = 4
+    model_endpoint = "databricks-dbrx-instruct"
+    tries = 0
+    try: 
+        gen_questions = generate_question(row, model_endpoint, root, token)
+        while row in gen_questions["question"] and tries < MAX_TRIES:
+            tries = tries + 1
+            gen_questions = generate_question(row, model_endpoint, root, token)    
+        out_data = {f'{chunk_id_key}': row[chunk_id_key]}
+        out_data['question'] = gen_questions['question']
+        return out_data
+    except Exception as e:
+        print(str(e))
+        print(f"failed to parse output for doc `{row[doc_uri_key]}` chunk_id {row[chunk_id_key]}")
+
+
+def generate_questions(chunks_df, chunk_id_key, dbutils):
+    NUM_THREADS = 7
+    root = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
+    token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+    parsed_json_chunks = []
+    json_df = chunks_df.toJSON().collect()
+    for row in json_df:
+        parsed_row = json.loads(row)
+        parsed_json_chunks.append(parsed_row)
+    # Create a ThreadPoolExecutor, wait for all tasks to complete and get the results
+    with concurrent.futures.ThreadPoolExecutor(max_workers=NUM_THREADS) as executor:
+        futures = [executor.submit(process_one_chunk, row, chunk_id_key, root, token) for row in parsed_json_chunks]
+        synthetic_data_raw = [future.result() for future in concurrent.futures.as_completed(futures)]
+
+    # Remove failed records
+    synthetic_data_raw = [x for x in synthetic_data_raw if x is not None]
+    return synthetic_data_raw
+
+def query_chain(question, endpoint_name):
+    model_input_sample = {
+        "messages": [{
+            "role": "user",
+            "content": question,
+        }]
+    }
+    headers = {"Context-Type": "text/json", "Authorization": f"Bearer {API_TOKEN}"}
+    response = requests.post(
+        url=f"{API_ROOT}/serving-endpoints/{endpoint_name}/invocations", json=model_input_sample, headers=headers
+    )
+    return json.dumps(response.json())
+
+def load_review_qa(synthetic_data_raw, endpoint_name, dbutils, num_threads = 7):
+    root = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
+    token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+        futures = [executor.submit(query_chain, row['question']), endpoint_name, root, token for row in synthetic_data_raw]
+        outputs = [future.result() for future in concurrent.futures.as_completed(futures)]
 
