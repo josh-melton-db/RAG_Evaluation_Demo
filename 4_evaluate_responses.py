@@ -1,9 +1,6 @@
 # Databricks notebook source
+# DBTITLE 1,Databricks RAG Studio Installer
 # MAGIC %run ./utils/wheel_installer 
-
-# COMMAND ----------
-
-# MAGIC %pip install --upgrade openai==1.14.1
 
 # COMMAND ----------
 
@@ -11,6 +8,7 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
+# DBTITLE 1,Import Libraries
 from databricks import rag_studio, rag_eval, rag
 import os
 import json
@@ -25,6 +23,7 @@ from utils.inference_log_parser import unpack_and_split_payloads, dedup_assessme
 
 # COMMAND ----------
 
+# DBTITLE 1,Get Config
 rag_config = rag.RagConfig("configs/rag_config.yaml")
 chunk_table = rag_config.get("demo_config").get("chunk_table")
 chunks_df = spark.table(chunk_table)
@@ -36,17 +35,21 @@ inference_table_uc_fqn = rag_config.get("demo_config").get("inference_table_uc_f
 request_log_output_uc_fqn = rag_config.get("demo_config").get("request_log_output_uc_fqn")
 assessment_log_output_uc_fqn = rag_config.get("demo_config").get("assessment_log_output_uc_fqn")
 model_fqdn = rag_config.get("demo_config").get("model_fqdn")
+synthetic_eval_set_table_uc_fqn = rag_config.get("demo_config").get("synthetic_eval_set_table_uc_fqn")
+chat_endpoint = rag_config.get("chat_endpoint")
+endpoint_name = rag_config.get("demo_config").get("endpoint_name")
 
 # COMMAND ----------
 
-synthetic_data_raw = generate_questions(chunks_df.limit(10), chunk_text_key, chunk_id_key, dbutils)
+# DBTITLE 1,Generate Questions About Chunks
+synthetic_data_raw = generate_questions(chunks_df.limit(5), chunk_text_key, chunk_id_key, dbutils)
 synthetic_data_raw
 
 # COMMAND ----------
 
 # DBTITLE 1,Turn the synthetic questions into a RAG Studio Evaluation Set
-synthetic_eval_set_table_uc_fqn = rag_config.get("demo_config").get("synthetic_eval_set_table_uc_fqn")
-write_synthetic_data(spark, synthetic_data_raw, synthetic_eval_set_table_uc_fqn, chunks_df, chunk_id_key, doc_uri_key, chunk_text_key)
+# write_synthetic_data(spark, synthetic_data_raw, synthetic_eval_set_table_uc_fqn, chunks_df, chunk_id_key, doc_uri_key, chunk_text_key)
+results = load_review_qa(synthetic_data_raw, f"rag_studio_{model_fqdn}".replace(".", "-"), dbutils)
 
 # COMMAND ----------
 
@@ -59,8 +62,8 @@ import yaml
 config_json = {
     "assessment_judges": [
         {
-            "judge_name": "databricks_eval_dbrx",
-            "endpoint_name": "endpoints:/databricks-dbrx-instruct",
+            "judge_name": f"eval_{chat_endpoint}",
+            "endpoint_name": f"endpoints:/{chat_endpoint}",
             "assessments": [
                 "harmful",
                 "faithful_to_context",
@@ -74,30 +77,20 @@ config_json = {
 }
 
 config_yml = yaml.dump(config_json)
-version = 1 # TODO: how to set this dymanically
-model_uri = f"models:/{model_fqdn}/{version}"
+model_uri = f"models:/{model_fqdn}/Champion"
 # Run evaluation, logging the results to a sub-run of the chain's MLflow run
 evaluation_results = rag_eval.evaluate(eval_set_table_name=synthetic_eval_set_table_uc_fqn, model_uri=model_uri, config=config_yml)
 
 # COMMAND ----------
 
-# DBTITLE 1,Send Inferences to App for Human Eval
-endpoint_name = rag_config.get("demo_config").get("endpoint_name")
-load_review_qa(synthetic_data_raw[:10], endpoint_name, dbutils)
-
-# COMMAND ----------
-
+# DBTITLE 1,Write Log Tables
 # Unpack the payloads
-payload_df = spark.table(inference_table_uc_fqn)
+payload_df = spark.table("default.generated_rag_demo.`rag_studio-rag_chain_payload`")
 request_logs, raw_assessment_logs = unpack_and_split_payloads(payload_df)
 
 # The Review App logs every user interaction with the feedback widgets to the inference table - this code de-duplicates them
 deduped_assessments_df = dedup_assessment_logs(raw_assessment_logs, granularity="hour")
 deduped_assessments_df.write.format("delta").mode("overwrite").saveAsTable(assessment_log_output_uc_fqn)
-display(request_logs)
-
-# COMMAND ----------
-
 (
     request_logs.write.format("delta")
     .option("mergeSchema", "true").mode("overwrite")
@@ -116,9 +109,16 @@ print(f"Wrote `assessment_log` to: {get_table_url(assessment_log_output_uc_fqn, 
 
 # COMMAND ----------
 
-requests_df = spark.table(request_log_output_uc_fqn)
+# DBTITLE 1,Display Request Log
+requests_df = spark.table(request_log_output_uc_fqn) 
 display(requests_df)
 
 # COMMAND ----------
 
-# rag_studio.enable_trace_reviews(model_name=model_fqdn) # request_ids=["d36b3691-6376-46f7-90dc-9b8bdfdf637e"])
+# DBTITLE 1,Send Inferences to App for Human Eval
+request_ids = [result["id"] for result in results] # TODO: add check that the requests are in the payload table first, wait if not
+rag_studio.enable_trace_reviews(model_name=model_fqdn, request_ids=request_ids)
+
+# COMMAND ----------
+
+

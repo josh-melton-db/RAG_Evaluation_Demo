@@ -1,5 +1,5 @@
 # Databricks notebook source
-# DBTITLE 1,Install Libraries
+# DBTITLE 1,Databricks RAG Studio Installer
 # MAGIC %run ./utils/wheel_installer
 
 # COMMAND ----------
@@ -35,6 +35,7 @@ from databricks import rag
 rag_config = rag.RagConfig("configs/rag_config.yaml")
 index_name = rag_config.get("vector_search_index")
 embedding_endpoint = rag_config.get("embedding_endpoint")
+vector_search_endpoint_name = rag_config.get("vector_search_endpoint_name")
 chunk_column_name = rag_config.get("chunk_column_name")
 chunk_size = rag_config.get("chunk_size")
 chunk_overlap = rag_config.get("chunk_overlap")

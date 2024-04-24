@@ -1,5 +1,6 @@
 # Databricks notebook source
-# Set your catalog, source schema, table, and vector endpoint names. Optionally, pass target_schema to get_config() below
+# DBTITLE 1,Set Configuration
+# Set your source names. Optionally, pass a separate target_schema to get_config() below
 catalog = "default"
 schema = "generated_rag_demo"
 table = "field_service_tickets"
@@ -12,12 +13,16 @@ generate_data_for_demo = False
 text_domain = "Field service maintenance tickets for a diesel engine manufacturer"
 category_ls = ["Overheated Turbocharger", "Fuel System Fault", "Worn Cylinder Head"]
 
+# COMMAND ----------
+
+# DBTITLE 1,Set Up Demo
 from utils.demo import get_config, save_config, reset_tables, generate_source_data
 config = get_config(catalog, schema, table, text_id_name, text_col_name, vector_search_endpoint_name)
 save_config(dbutils, config)
 
 # COMMAND ----------
 
+# DBTITLE 1,Write Demo Data
 # TODO: pull into demo.py
 if generate_data_for_demo:
     from langchain.chat_models import ChatDatabricks

@@ -13,7 +13,7 @@ import json
 # TODO: reduce number of args - use kwargs, dictionary
 def get_config(catalog, source_schema, source_table_name, source_id_name, source_column_name, vs_endpoint,
                target_schema=None, num_docs=3, chunk_size_tokens=300, chunk_overlap_tokens=100,
-               embedding_endpoint="databricks-bge-large-en", chat_model = "databricks-dbrx-instruct"):
+               embedding_endpoint="databricks-bge-large-en", chat_model="databricks-dbrx-instruct", chat_prompt=None):
     w = WorkspaceClient()
     username = w.current_user.me().user_name.replace('@', '_').replace('.', '_')
     source_table = f"{catalog}.{source_schema}.{source_table_name}"
@@ -22,18 +22,19 @@ def get_config(catalog, source_schema, source_table_name, source_id_name, source
     chunk_id_column_name = "chunk_id"
     index_name = f"{catalog}.{source_schema}.{source_table_name}_index" # TODO: unique per user
     # TODO: automatically retrieve vs endpoint via sdk?
+    # TODO: model serving endpoint name is too long
 
     if not target_schema:
-        target_schema = f"{username}_rag_eval"
-    model_name = f"{source_table_name}_chain"
+        target_schema = source_schema
+    model_name = "rag_chain"
     model_fqdn = f"{catalog}.{target_schema}.{model_name}"
-    endpoint_name = f"rag_studio-{username}-{source_table_name}"
-    synthetic_eval_set_table_uc_fqn = f"{catalog}.{target_schema}.`synthetic_eval_set`"
+    endpoint_name = f"rag_studio_{model_fqdn}".replace(".", "-")
+    synthetic_eval_set_table_uc_fqn = f"{catalog}.{target_schema}.synthetic_eval_set"
     inference_table_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{model_name}_payload`" 
-    request_log_output_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{model_name}_request_log`"
-    assessment_log_output_uc_fqn = f"{catalog}.{target_schema}.`rag_studio-{model_name}_assessment_log`"
-    
-    chat_prompt = "You are a trusted assistant that helps answer questions about troubleshooting diesel engines based only on the provided information. If you do not know the answer to a question, you truthfully say you do not know.  Here is some context which might or might not help you answer: {context}.  Answer directly, do not repeat the question, do not start with something like: the answer to the question, do not add AI in front of your answer, do not say: here is the answer, do not mention the context or the question. Based on this history and context, answer this question: {question}."
+    request_log_output_uc_fqn = f"{catalog}.{target_schema}.{model_name}_request_log"
+    assessment_log_output_uc_fqn = f"{catalog}.{target_schema}.{model_name}_assessment_log"
+    if not chat_prompt:
+        chat_prompt = "You are a trusted assistant that helps answer questions based only on the provided information. If you do not know the answer to a question, you truthfully say you do not know.  Here is some context which might or might not help you answer: {context}.  Answer directly, do not repeat the question, do not start with something like: the answer to the question, do not add AI in front of your answer, do not say: here is the answer, do not mention the context or the question. Based on this history and context, answer this question: {question}."
     prompt_vars = ["context", "question"]
     chunk_template = "`{chunk_text}`"
 
@@ -77,6 +78,8 @@ def save_config(dbutils, rag_config, fname="rag_config.yaml"):
     folder_path = '/'.join(str(x) for x in notebook_path.split('/')[:-1])
     with open(f"/Workspace/{folder_path}/configs/{fname}", 'w') as outfile:
         yaml.dump(rag_config, outfile, default_flow_style=False)
+
+
 
 def generate_category(chat_model, text_domain, category_ls):
     category_prompt = "Given the domain '{text_domain}', generate a classification or category for a piece of text in the domain. For example, if the domain was 'airplane pilot notes' a category might be 'control panel malfunction'. Come up with a category different from the following, if available: {category_ls}. Give only the category, in three words or less, no description, no filler, nothing about a response, ONLY THE CATEGORY:"
@@ -251,10 +254,9 @@ def query_chain(question, endpoint_name, root, token):
         }]
     }
     headers = {"Context-Type": "text/json", "Authorization": f"Bearer {token}"}
-    response = requests.post(
-        url=f"{root}/serving-endpoints/{endpoint_name}/invocations", json=model_input_sample, headers=headers
-    )
-    return json.dumps(response.json())
+    url = f"{root}/serving-endpoints/{endpoint_name}/invocations"
+    response = requests.post(url=url, json=model_input_sample, headers=headers)
+    return response.json()
 
 def load_review_qa(synthetic_data_raw, endpoint_name, dbutils, num_threads = 7):
     root = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
@@ -262,6 +264,7 @@ def load_review_qa(synthetic_data_raw, endpoint_name, dbutils, num_threads = 7):
     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
         futures = [executor.submit(query_chain, row['question'], endpoint_name, root, token) for row in synthetic_data_raw]
         outputs = [future.result() for future in concurrent.futures.as_completed(futures)]
+    return outputs
 
 def write_synthetic_data(spark, synthetic_data, synthetic_table_name, chunks_df, chunk_id_key, doc_uri_key, chunk_text_key):
     # Join generated questions back to the chunks to get the chunk text

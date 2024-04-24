@@ -15,6 +15,7 @@ dbutils.library.restartPython()
 # DBTITLE 1,Import Libraries
 import os
 import mlflow
+from mlflow import MlflowClient
 from databricks import rag_studio, rag_eval, rag
 import json
 import html
@@ -33,6 +34,8 @@ chain_config_file = "configs/rag_config.yaml"
 chain_notebook_path = f"{current_path}/{chain_notebook_file}"
 chain_config_path = f"{current_path}/{chain_config_file}"
 rag_config = rag.RagConfig(chain_config_file)
+model_fqdn = rag_config.get("demo_config").get("model_fqdn")
+
 print(f"Saving chain from: {chain_notebook_path}, config from: {chain_config_path}")
 
 # COMMAND ----------
@@ -65,9 +68,9 @@ loaded_model.invoke(model_input)
 
 # DBTITLE 1,Register the model
 # To deploy the model, first register the chain from the MLflow Run as a Unity Catalog model.
-model_fqdn = rag_config.get("demo_config").get("model_fqdn")
 mlflow.set_registry_uri('databricks-uc')
 uc_registered_chain_info = mlflow.register_model(logged_chain_info.model_uri, model_fqdn)
+MlflowClient().set_registered_model_alias(model_fqdn, "Champion")
 
 # COMMAND ----------
 
@@ -90,12 +93,8 @@ print(parse_deployment_info(deployment_info))
 # # If you lost the deployment information captured above, you can find it using list_deployments()
 # deployments = rag_studio.list_deployments()
 # for deployment in deployments:
-#   if deployment.model_name == model_fqdn and deployment.model_version==uc_registered_chain_info.version:
+#   if deployment.model_name == model_fqdn: #and deployment.model_version==uc_registered_chain_info.version:
 #     print(parse_deployment_info(deployment))
-
-# COMMAND ----------
-
-# rag_studio.enable_trace_reviews(model_name=model_fqdn, request_ids=["528b0a3b-2b25-4e5b-b954-55ace9826839"]) 
 
 # COMMAND ----------
 
@@ -107,7 +106,6 @@ print(parse_deployment_info(deployment_info))
 # w = WorkspaceClient()
 # user_name = w.current_user.me().user_name
 # set_permissions(model_fqdn, [user_name], PermissionLevel.CAN_MANAGE)
-# set_permissions(model_fqdn, [user_name], PermissionLevel.CAN_REVIEW)
 
 # COMMAND ----------
 
