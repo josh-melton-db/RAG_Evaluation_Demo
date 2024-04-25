@@ -230,7 +230,7 @@ def process_one_chunk(row, chunk_text_key, chunk_id_key, root, token):
         out_data["question"] = gen_questions["question"]
         return out_data
     except Exception as e:
-        print(f"failed to parse output for doc `{row[doc_uri_key]}` chunk_id {row[chunk_id_key]}")
+        print(f"failed to parse output for doc `{row[chunk_text_key]}` chunk_id {row[chunk_id_key]}")
 
 def generate_questions(chunks_df, chunk_text_key, chunk_id_key, dbutils):
     NUM_THREADS = 7

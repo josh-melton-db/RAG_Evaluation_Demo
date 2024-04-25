@@ -77,7 +77,10 @@ config_json = {
 }
 
 config_yml = yaml.dump(config_json)
-model_uri = f"models:/{model_fqdn}/champion"
+from mlflow import MlflowClient
+client = MlflowClient()
+version = client.get_model_version_by_alias(model_fqdn, "Champion").version
+model_uri = f"models:/{model_fqdn}/{version}"
 # Run evaluation, logging the results to a sub-run of the chain's MLflow run
 evaluation_results = rag_eval.evaluate(eval_set_table_name=synthetic_eval_set_table_uc_fqn, model_uri=model_uri, config=config_yml)
 
