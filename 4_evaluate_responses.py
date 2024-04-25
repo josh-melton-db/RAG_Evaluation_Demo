@@ -42,13 +42,13 @@ endpoint_name = rag_config.get("demo_config").get("endpoint_name")
 # COMMAND ----------
 
 # DBTITLE 1,Generate Questions About Chunks
-synthetic_data_raw = generate_questions(chunks_df.limit(5), chunk_text_key, chunk_id_key, dbutils)
+synthetic_data_raw = generate_questions(chunks_df.limit(20), chunk_text_key, chunk_id_key, dbutils)
 synthetic_data_raw
 
 # COMMAND ----------
 
 # DBTITLE 1,Turn the synthetic questions into a RAG Studio Evaluation Set
-# write_synthetic_data(spark, synthetic_data_raw, synthetic_eval_set_table_uc_fqn, chunks_df, chunk_id_key, doc_uri_key, chunk_text_key)
+write_synthetic_data(spark, synthetic_data_raw, synthetic_eval_set_table_uc_fqn, chunks_df, chunk_id_key, doc_uri_key, chunk_text_key)
 results = load_review_qa(synthetic_data_raw, f"rag_studio_{model_fqdn}".replace(".", "-"), dbutils)
 
 # COMMAND ----------
@@ -77,7 +77,7 @@ config_json = {
 }
 
 config_yml = yaml.dump(config_json)
-model_uri = f"models:/{model_fqdn}/Champion"
+model_uri = f"models:/{model_fqdn}/champion"
 # Run evaluation, logging the results to a sub-run of the chain's MLflow run
 evaluation_results = rag_eval.evaluate(eval_set_table_name=synthetic_eval_set_table_uc_fqn, model_uri=model_uri, config=config_yml)
 
