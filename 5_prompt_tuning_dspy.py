@@ -29,7 +29,7 @@ class CoT(dspy.Module):
 
 test_question = "What's wrong with my turbocharger?"
 regular_CoT = CoT()
-regular_CoT(request=test_question, context="")
+regular_CoT(request=test_question, context="").response
 
 # COMMAND ----------
 
