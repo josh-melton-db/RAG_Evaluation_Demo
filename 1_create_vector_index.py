@@ -1,4 +1,8 @@
 # Databricks notebook source
+print('merge')
+
+# COMMAND ----------
+
 # DBTITLE 1,Databricks RAG Studio Installer
 # MAGIC %run ./utils/wheel_installer
 
