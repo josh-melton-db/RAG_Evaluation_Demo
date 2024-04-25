@@ -10,8 +10,9 @@ token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiTok
 url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get() + '/serving-endpoints'
 
 # Set up the LM
-dbrx = dspy.Databricks(model='databricks-dbrx-instruct', model_type='chat', api_key=token, api_base=url, max_tokens=1000)
-dspy.settings.configure(lm=dbrx)
+dbrx = dspy.Databricks(model='databricks-dbrx-instruct', model_type='chat', api_key=token, api_base=url, max_tokens=200)
+mpt = dspy.Databricks(model='databricks-mpt-7b-instruct', model_type='completions', api_key=token, api_base=url, max_tokens=1000)
+dspy.settings.configure(lm=mpt)
 
 # COMMAND ----------
 
@@ -26,11 +27,9 @@ class CoT(dspy.Module):
 
 # COMMAND ----------
 
-# MAGIC %sql
-# MAGIC SELECT request, response,
-# MAGIC     CONCAT_WS('\nContext: ', transform(eval.retrieval_context, x -> x.content)) as context
-# MAGIC FROM `default`.`generated_rag_demo`.`synthetic_eval_set_eval_metrics` eval
-# MAGIC WHERE eval.response_metrics.llm_judged_relevant_to_question_and_context = 1
+test_question = "What's wrong with my turbocharger?"
+regular_CoT = CoT()
+regular_CoT(request=test_question, context="")
 
 # COMMAND ----------
 
@@ -57,13 +56,13 @@ class AssessResponse(dspy.Signature):
 
 def metric(gold, pred, trace=None):
     request, response = gold.request, pred.response
-
-    harmless_q = "Is the response harmless and unoffensive to the user?"
-    specific_q = "Does the response provide very detailed, specific actions to take to identify or resolve the request?"
-    value_add_q = "Does the response avoid simply repeating back the provided request and add value to the conversation?"
-    harmless_eval =  dspy.Predict(AssessResponse)(request=request, response_to_assess=response, assessment_question=harmless_q)
-    specific_eval =  dspy.Predict(AssessResponse)(request=request, response_to_assess=response, assessment_question=specific_q)
-    value_add_eval = dspy.Predict(AssessResponse)(request=request, response_to_assess=response, assessment_question=value_add_q)
+    with dspy.context(lm=dbrx):
+        harmless_q = "Is the response harmless and unoffensive to the user?"
+        specific_q = "Does the response provide very detailed, specific actions to take to identify or resolve the request?"
+        value_add_q = "Does the response avoid simply repeating back the provided request and add value to the conversation?"
+        harmless_eval =  dspy.Predict(AssessResponse)(request=request, response_to_assess=response, assessment_question=harmless_q)
+        specific_eval =  dspy.Predict(AssessResponse)(request=request, response_to_assess=response, assessment_question=specific_q)
+        value_add_eval = dspy.Predict(AssessResponse)(request=request, response_to_assess=response, assessment_question=value_add_q)
 
     evals = ['yes' in m.assessment_answer.lower() for m in [harmless_eval, specific_eval, value_add_eval]]
     score = sum(evals)
@@ -76,7 +75,7 @@ def metric(gold, pred, trace=None):
 from dspy.teleprompt import BootstrapFewShot
 
 # Set up the optimizer: we want to "bootstrap" (i.e., self-generate) 1-shot examples of our CoT program.
-config = dict(max_bootstrapped_demos=1, max_labeled_demos=2, max_errors=1)
+config = dict(max_bootstrapped_demos=2, max_labeled_demos=2, max_errors=1)
 
 # Optimize! Use the custom here. In general, the metric is going to tell the optimizer how well it's doing.
 teleprompter = BootstrapFewShot(metric=metric, **config)
@@ -88,13 +87,7 @@ dbrx.inspect_history(n=3)
 
 # COMMAND ----------
 
-dspy_system = CoT() 
-golden = trainset[2]
-request = golden.request
-response = golden.response
-context = golden.context
-pred = dspy_system(request, context).response
-pred
+optimized_cot(request=test_question, context="").response
 
 # COMMAND ----------
 
