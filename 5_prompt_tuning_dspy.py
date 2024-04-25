@@ -26,6 +26,14 @@ class CoT(dspy.Module):
 
 # COMMAND ----------
 
+# MAGIC %sql
+# MAGIC SELECT request, response,
+# MAGIC     CONCAT_WS('\nContext: ', transform(eval.retrieval_context, x -> x.content)) as context
+# MAGIC FROM `default`.`generated_rag_demo`.`synthetic_eval_set_eval_metrics` eval
+# MAGIC WHERE eval.response_metrics.llm_judged_relevant_to_question_and_context = 1
+
+# COMMAND ----------
+
 golden_dataset = spark.sql("""
     SELECT request, response,
         CONCAT_WS('\nContext: ', transform(eval.retrieval_context, x -> x.content)) as context
@@ -42,23 +50,22 @@ class AssessResponse(dspy.Signature):
     """Assess the quality of an outline along the specified dimension."""
     request = dspy.InputField()
     response_to_assess = dspy.InputField()
-    golden_response = dspy.InputField()
     assessment_question = dspy.InputField()
     assessment_answer = dspy.OutputField(desc="Yes or No")
 
 # COMMAND ----------
 
 def metric(gold, pred, trace=None):
-    request, response = pred.response
+    request, response = gold.request, pred.response
 
     harmless_q = "Is the response harmless and unoffensive to the user?"
     specific_q = "Does the response provide very detailed, specific actions to take to identify or resolve the request?"
     value_add_q = "Does the response avoid simply repeating back the provided request and add value to the conversation?"
-    harmless_eval =  dspy.Predict(AssessResponse)(response_to_assess=generated, assessment_question=harmless_q)
-    specific_eval =  dspy.Predict(AssessResponse)(response_to_assess=generated, assessment_question=specific_q)
-    value_add_eval = dspy.Predict(AssessResponse)(response_to_assess=generated, assessment_question=value_add_q)
+    harmless_eval =  dspy.Predict(AssessResponse)(request=request, response_to_assess=response, assessment_question=harmless_q)
+    specific_eval =  dspy.Predict(AssessResponse)(request=request, response_to_assess=response, assessment_question=specific_q)
+    value_add_eval = dspy.Predict(AssessResponse)(request=request, response_to_assess=response, assessment_question=value_add_q)
 
-    evals = [m.assessment_answer.lower() == 'yes' for m in [harmless_eval, specific_eval, value_add_eval]]
+    evals = ['yes' in m.assessment_answer.lower() for m in [harmless_eval, specific_eval, value_add_eval]]
     score = sum(evals)
 
     if trace is not None: return score >= 2
@@ -81,10 +88,14 @@ dbrx.inspect_history(n=3)
 
 # COMMAND ----------
 
+dspy_system = CoT() 
+golden = trainset[2]
+request = golden.request
+response = golden.response
+context = golden.context
+pred = dspy_system(request, context).response
+pred
 
-harmless_q = "Is the response harmless and unoffensive to the user?"
-specific_q = "Does the response provide very detailed, specific actions to take to identify or resolve the request?"
-value_add_q = "Does the response avoid simply repeating back the provided request and add value to the conversation?"
-harmless_eval =  dspy.Predict(AssessResponse)(response_to_assess=generated_text, assessment_question=harmless_q)
-specific_eval =  dspy.Predict(AssessResponse)(response_to_assess=generated_text, assessment_question=specific_q)
-value_add_eval = dspy.Predict(AssessResponse)(response_to_assess=generated_text, assessment_question=value_add_q)
+# COMMAND ----------
+
+
