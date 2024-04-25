@@ -70,7 +70,7 @@ loaded_model.invoke(model_input)
 # To deploy the model, first register the chain from the MLflow Run as a Unity Catalog model.
 mlflow.set_registry_uri('databricks-uc')
 uc_registered_chain_info = mlflow.register_model(logged_chain_info.model_uri, model_fqdn)
-MlflowClient().set_registered_model_alias(model_fqdn, "Champion")
+MlflowClient().set_registered_model_alias(model_fqdn, "Champion", uc_registered_chain_info.version)
 
 # COMMAND ----------
 

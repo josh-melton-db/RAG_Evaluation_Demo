@@ -20,8 +20,8 @@ chunk_template: '`{chunk_text}`'
 demo_config:
   assessment_log_output_uc_fqn: default.generated_rag_demo.rag_chain_assessment_log
   chunk_table: default.generated_rag_demo.field_service_tickets_chunked
-  endpoint_name: rag_studio_demo_josh_melton_databricks_com
-  inference_table_uc_fqn: default.generated_rag_demo.rag_chain_payload
+  endpoint_name: rag_studio_default-generated_rag_demo-rag_chain
+  inference_table_uc_fqn: default.generated_rag_demo.`rag_studio-rag_chain_payload`
   model_fqdn: default.generated_rag_demo.rag_chain
   request_log_output_uc_fqn: default.generated_rag_demo.rag_chain_request_log
   source_column_name: issue_description
