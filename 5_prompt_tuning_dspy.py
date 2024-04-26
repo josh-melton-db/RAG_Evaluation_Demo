@@ -87,7 +87,37 @@ dbrx.inspect_history(n=3)
 
 # COMMAND ----------
 
-optimized_cot(request=test_question, context="").response
+optimized_output = optimized_cot(request=test_question, context="")
+optimized_output.response
+
+# COMMAND ----------
+
+optimized_cot(request=test_question, context="")
+
+# COMMAND ----------
+
+model_path = "/tmp/model.json"
+optimized_cot.save(model_path)
+
+# COMMAND ----------
+
+import mlflow
+import mlflow.pyfunc
+
+class DSPyModel(mlflow.pyfunc.PythonModel):
+    def load_context(self, context):
+        self.model = CoT().load(path=context.artifacts["model"])
+    
+    def predict(self, request):
+        return self.model(request)
+
+# Log the model with mlflow
+logged_model = mlflow.pyfunc.log_model(artifact_path="model_path", python_model=DSPyModel())
+
+# COMMAND ----------
+
+loaded_model = mlflow.pyfunc.load_model(logged_model.model_uri)
+loaded_model.predict("test")
 
 # COMMAND ----------
 
