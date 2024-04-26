@@ -1,9 +1,11 @@
 # Databricks notebook source
+# DBTITLE 1,Install Libraries
 # MAGIC %pip install dspy-ai --upgrade -q
 # MAGIC dbutils.library.restartPython()
 
 # COMMAND ----------
 
+# DBTITLE 1,Setup
 import dspy
 
 token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiToken().get()
@@ -16,6 +18,7 @@ dspy.settings.configure(lm=mpt)
 
 # COMMAND ----------
 
+# DBTITLE 1,Create DSPy Module
 class CoT(dspy.Module):
     """Generates a response to the request using retrieved input for grounding"""
     def __init__(self):
@@ -27,12 +30,14 @@ class CoT(dspy.Module):
 
 # COMMAND ----------
 
+# DBTITLE 1,Sample Unoptimized Response
 test_question = "What's wrong with my turbocharger?"
 regular_CoT = CoT()
 regular_CoT(request=test_question, context="").response
 
 # COMMAND ----------
 
+# DBTITLE 1,Create Golden Dataset
 golden_dataset = spark.sql("""
     SELECT request, response,
         CONCAT_WS('\nContext: ', transform(eval.retrieval_context, x -> x.content)) as context
@@ -45,6 +50,7 @@ trainset = [dspy.Example(request=row['request'], context=row['context'], respons
 
 # COMMAND ----------
 
+# DBTITLE 1,Define Assessment
 class AssessResponse(dspy.Signature):
     """Assess the quality of an outline along the specified dimension."""
     request = dspy.InputField()
@@ -54,6 +60,7 @@ class AssessResponse(dspy.Signature):
 
 # COMMAND ----------
 
+# DBTITLE 1,Define Metric
 def metric(gold, pred, trace=None):
     request, response = gold.request, pred.response
     with dspy.context(lm=dbrx):
@@ -72,6 +79,7 @@ def metric(gold, pred, trace=None):
 
 # COMMAND ----------
 
+# DBTITLE 1,Optimize DSPy Module
 from dspy.teleprompt import BootstrapFewShot
 
 # Set up the optimizer: we want to "bootstrap" (i.e., self-generate) 1-shot examples of our CoT program.
@@ -83,41 +91,44 @@ optimized_cot = teleprompter.compile(CoT(), trainset=trainset)
 
 # COMMAND ----------
 
+# DBTITLE 1,Inspect Judge History
 dbrx.inspect_history(n=3)
 
 # COMMAND ----------
 
+# DBTITLE 1,Generate Optimized Response
 optimized_output = optimized_cot(request=test_question, context="")
 optimized_output.response
 
 # COMMAND ----------
 
-optimized_cot(request=test_question, context="")
+# optimized_cot(request=test_question, context="")
 
 # COMMAND ----------
 
-model_path = "/tmp/model.json"
-optimized_cot.save(model_path)
+# model_path = "/tmp/model.json"
+# optimized_cot.save(model_path)
 
 # COMMAND ----------
 
-import mlflow
-import mlflow.pyfunc
+# import mlflow
+# import mlflow.pyfunc
 
-class DSPyModel(mlflow.pyfunc.PythonModel):
-    def load_context(self, context):
-        self.model = CoT().load(path=context.artifacts["model"])
+# class DSPyModel(mlflow.pyfunc.PythonModel):
+#     def load_context(self, context):
+#         self.model = CoT().load(path=context.artifacts["model"])
     
-    def predict(self, request):
-        return self.model(request)
+#     def predict(self, request):
+#         return self.model(request)
 
-# Log the model with mlflow
-logged_model = mlflow.pyfunc.log_model(artifact_path="model_path", python_model=DSPyModel())
+# # Log the model with mlflow
+# logged_model = mlflow.pyfunc.log_model(artifact_path="model_path", python_model=DSPyModel())
 
 # COMMAND ----------
 
-loaded_model = mlflow.pyfunc.load_model(logged_model.model_uri)
-loaded_model.predict("test")
+# DBTITLE 1,Load and predict with MLflow model
+# loaded_model = mlflow.pyfunc.load_model(logged_model.model_uri)
+# loaded_model.predict("test")
 
 # COMMAND ----------
 
