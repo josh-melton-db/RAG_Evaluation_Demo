@@ -27,10 +27,10 @@ token = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiTok
 url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl().get()
 
 # Set up the models
-lm = dspy.Databricks(model='databricks-mpt-7b-instruct', model_type='completions', api_key=token, 
+lm = dspy.Databricks(model="databricks-mpt-7b-instruct", model_type="completions", api_key=token, 
                      api_base=url + '/serving-endpoints', max_tokens=1000)
-judge = dspy.Databricks(model='databricks-dbrx-instruct', model_type='chat', api_key=token, 
-                        api_base=url + '/serving-endpoints', max_tokens=200)
+judge = dspy.Databricks(model="databricks-dbrx-instruct", model_type="chat", api_key=token, 
+                        api_base=url + "/serving-endpoints", max_tokens=200)
 dspy.settings.configure(lm=lm) # TODO: set the cache folder
 
 # COMMAND ----------
@@ -48,7 +48,7 @@ class RAG(dspy.Module):
     """Generates a response to the request using retrieved input for grounding"""
     def __init__(self):
         super().__init__()
-        self.retrieve = DatabricksRM(
+        self.retrieve = DatabricksRM( # Set up retrieval from our vector search
             databricks_index_name=index_name,
             databricks_endpoint=url, 
             databricks_token=token,
@@ -56,7 +56,7 @@ class RAG(dspy.Module):
             text_column_name=chunk_column,
             docs_id_column_name=doc_id,
         )
-        self.respond = dspy.ChainOfThought(Respond)
+        self.respond = dspy.ChainOfThought(Respond) # Responses will use chain of thought, i.e. "think this through step by step..."
 
     def forward(self, request):
         context = self.retrieve(request, query_type="text").docs
