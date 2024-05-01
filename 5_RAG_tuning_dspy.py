@@ -1,4 +1,8 @@
 # Databricks notebook source
+# MAGIC %run ./utils/wheel_installer 
+
+# COMMAND ----------
+
 # DBTITLE 1,Install Libraries
 # MAGIC %pip install dspy-ai --upgrade -q
 # MAGIC dbutils.library.restartPython()
@@ -6,6 +10,16 @@
 # COMMAND ----------
 
 # DBTITLE 1,Setup
+from databricks import rag
+rag_config = rag.RagConfig("configs/rag_config.yaml")
+synthetic_eval_set_table_uc_fqn = rag_config.get("demo_config").get("synthetic_eval_set_table_uc_fqn")
+index_name = rag_config.get("vector_search_index")
+doc_id = rag_config.get("document_source_id")
+chunk_column = rag_config.get("chunk_column_name")
+
+# COMMAND ----------
+
+# DBTITLE 1,Set DSPy Models
 import dspy
 from dspy.retrieve.databricks_rm import DatabricksRM
 
@@ -14,10 +28,18 @@ url = dbutils.notebook.entry_point.getDbutils().notebook().getContext().apiUrl()
 
 # Set up the models
 lm = dspy.Databricks(model='databricks-mpt-7b-instruct', model_type='completions', api_key=token, 
-                      api_base=url + '/serving-endpoints', max_tokens=1000)
+                     api_base=url + '/serving-endpoints', max_tokens=1000)
 judge = dspy.Databricks(model='databricks-dbrx-instruct', model_type='chat', api_key=token, 
-                       api_base=url + '/serving-endpoints', max_tokens=200)
-dspy.settings.configure(lm=lm)
+                        api_base=url + '/serving-endpoints', max_tokens=200)
+dspy.settings.configure(lm=lm) # TODO: set the cache folder
+
+# COMMAND ----------
+
+class CoT(dspy.Signature):
+    """Generates a response to the request given some context"""
+    request = dspy.InputField(desc="Request from an end user")
+    context = dspy.InputField(desc="Context retrieved from vector search")
+    response = dspy.OutputField(desc="Response to the user's question given the retrieved context")
 
 # COMMAND ----------
 
@@ -27,15 +49,15 @@ class RAG(dspy.Module):
     def __init__(self):
         super().__init__()
         self.retrieve = DatabricksRM(
-            databricks_index_name="default.generated_rag_demo.field_service_tickets_index", # TODO: dynamic
+            databricks_index_name=index_name,
             databricks_endpoint=url, 
             databricks_token=token,
-            columns=["issue_description", "category"],
-            text_column_name="issue_description",
-            docs_id_column_name="ticket_number",
+            columns=["category", doc_id, chunk_column],
+            text_column_name=chunk_column,
+            docs_id_column_name=doc_id,
         )
         self.CoT = dspy.ChainOfThought("request, context -> response") # TODO: pull this into its own module
-    
+
     def forward(self, request):
         context = self.retrieve(request, query_type="text").docs
         return self.CoT(request=request, context=str(context))
@@ -43,21 +65,21 @@ class RAG(dspy.Module):
 # COMMAND ----------
 
 # DBTITLE 1,Sample Unoptimized Response
-test_question = "What's wrong with my turbocharger?" # TODO: remove
+test_question = "What's wrong with my turbocharger?" # TODO: remove this cell
 regular_RAG = RAG()
 regular_RAG(request=test_question).response
 
 # COMMAND ----------
 
-# DBTITLE 1,Create Golden Dataset
-golden_dataset = spark.sql("""
-    SELECT request, response,
-        CONCAT_WS('\nContext: ', transform(eval.retrieval_context, x -> x.content)) as context
-    FROM `default`.`generated_rag_demo`.`synthetic_eval_set_eval_metrics` eval
-    WHERE eval.response_metrics.llm_judged_relevant_to_question_and_context = 1
-""").toPandas()
+from pyspark.sql.functions import expr
 
-trainset = [dspy.Example(request=row['request'], response=row['response']).with_inputs('request', 'context')
+golden_dataset = (
+    spark.read.table(synthetic_eval_set_table_uc_fqn+"_eval_metrics")
+    .where(expr("response_metrics.llm_judged_relevant_to_question_and_context = 1"))
+    .select("request", "response", 
+            expr("concat_ws('; ', transform(synthetic_eval_set_eval_metrics.retrieval_context, x -> x.content))").alias("context"))
+).toPandas()
+trainset = [dspy.Example(request=row['request'], response=row['response']).with_inputs('request')
            for i, row in golden_dataset.iterrows()]
 
 # COMMAND ----------
@@ -91,13 +113,15 @@ def metric(gold, pred, trace=None):
 
 # COMMAND ----------
 
+# DBTITLE 1,Caclulate Baseline Metric
 rag = RAG()
 scores = []
 for x in trainset:
     pred = rag(x.request)
     score = metric(x, pred)
     scores.append(score)
-print("Average score (out of 3):    ", sum(scores) / len(scores))
+raw_score = sum(scores) / len(scores)
+print("Average score (out of 3):    ", raw_score)
 
 # COMMAND ----------
 
@@ -119,15 +143,30 @@ optimized_rag = optimizer.compile(RAG(), trainset=trainset)
 
 # COMMAND ----------
 
+# DBTITLE 1,Calculate Optimized Metric
 rag = RAG()
 scores = []
 for x in trainset:
     pred = optimized_rag(x.request)
     score = metric(x, pred)
     scores.append(score)
-print("Average score (out of 3):    ", sum(scores) / len(scores))
+optimized_score = sum(scores) / len(scores)
+print("Optimized score (out of 3):  ", optimized_score) 
+print("% Improvement over raw:      ", 100*(optimized_score - raw_score) / raw_score)
 
 # COMMAND ----------
 
-# TODO: put dspy into langchain
-# TODO: set chain for studio
+# TODO: save chain to cache folder, set chain, deploy to studio
+# from langchain.chains import LLMChain
+# from dspy.predict.langchain import LangChainModule
+# langchain_module = LangChainModule(optimized_rag)
+# chain = LLMChain(langchain_module)
+
+# COMMAND ----------
+
+# chain.run("What's wrong with the turbocharger?")
+# rag.set_chain(chain)
+
+# COMMAND ----------
+
+
