@@ -35,7 +35,7 @@ dspy.settings.configure(lm=lm) # TODO: set the cache folder
 
 # COMMAND ----------
 
-class CoT(dspy.Signature):
+class Respond(dspy.Signature):
     """Generates a response to the request given some context"""
     request = dspy.InputField(desc="Request from an end user")
     context = dspy.InputField(desc="Context retrieved from vector search")
@@ -56,18 +56,11 @@ class RAG(dspy.Module):
             text_column_name=chunk_column,
             docs_id_column_name=doc_id,
         )
-        self.CoT = dspy.ChainOfThought("request, context -> response") # TODO: pull this into its own module
+        self.respond = dspy.ChainOfThought(Respond)
 
     def forward(self, request):
         context = self.retrieve(request, query_type="text").docs
-        return self.CoT(request=request, context=str(context))
-
-# COMMAND ----------
-
-# DBTITLE 1,Sample Unoptimized Response
-test_question = "What's wrong with my turbocharger?" # TODO: remove this cell
-regular_RAG = RAG()
-regular_RAG(request=test_question).response
+        return self.respond(request=request, context=str(context))
 
 # COMMAND ----------
 
@@ -166,7 +159,3 @@ print("% Improvement over raw:      ", 100*(optimized_score - raw_score) / raw_s
 
 # chain.run("What's wrong with the turbocharger?")
 # rag.set_chain(chain)
-
-# COMMAND ----------
-
-
