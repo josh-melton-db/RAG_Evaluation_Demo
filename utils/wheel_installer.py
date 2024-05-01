@@ -4,4 +4,4 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install openai
+# MAGIC %pip install openai # TODO: could probably take this out into just notebook 4

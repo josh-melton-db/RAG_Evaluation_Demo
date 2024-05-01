@@ -43,7 +43,7 @@ endpoint_name = rag_config.get("demo_config").get("endpoint_name")
 
 # DBTITLE 1,Generate Questions About Chunks
 synthetic_data_raw = generate_questions(chunks_df.limit(20), chunk_text_key, chunk_id_key, dbutils)
-synthetic_data_raw
+synthetic_data_raw # TODO: add other chunks from the category as expected retrieval context
 
 # COMMAND ----------
 
