@@ -31,7 +31,7 @@ lm = dspy.Databricks(model="databricks-mpt-7b-instruct", model_type="completions
                      api_base=url + '/serving-endpoints', max_tokens=1000)
 judge = dspy.Databricks(model="databricks-dbrx-instruct", model_type="chat", api_key=token, 
                         api_base=url + "/serving-endpoints", max_tokens=200)
-dspy.settings.configure(lm=lm) # TODO: set the cache folder
+dspy.settings.configure(lm=lm) # TODO: set a separate cache folder os.environ["DSP_NOTEBOOK_CACHEDIR"]
 
 # COMMAND ----------
 
@@ -64,6 +64,7 @@ class RAG(dspy.Module):
 
 # COMMAND ----------
 
+# DBTITLE 1,Create Datasets
 from pyspark.sql.functions import expr
 
 golden_dataset = (
@@ -73,7 +74,9 @@ golden_dataset = (
             expr("concat_ws('; ', transform(synthetic_eval_set_eval_metrics.retrieval_context, x -> x.content))").alias("context"))
 ).toPandas()
 trainset = [dspy.Example(request=row['request'], response=row['response']).with_inputs('request')
-           for i, row in golden_dataset.iterrows()]
+           for i, row in golden_dataset.iterrows() if i % 5 < 4]
+testset = [dspy.Example(request=row['request'], response=row['response']).with_inputs('request')
+           for i, row in golden_dataset.iterrows() if i % 5 == 4]
 
 # COMMAND ----------
 
@@ -109,12 +112,26 @@ def metric(gold, pred, trace=None):
 # DBTITLE 1,Caclulate Baseline Metric
 rag = RAG()
 scores = []
-for x in trainset:
+for x in testset:
     pred = rag(x.request)
     score = metric(x, pred)
     scores.append(score)
 raw_score = sum(scores) / len(scores)
-print("Average score (out of 3):    ", raw_score)
+print("Baseline average score (out of 3):    ", raw_score)
+
+# COMMAND ----------
+
+llama = dspy.Databricks(model="databricks-meta-llama-3-70b-instruct", model_type="chat", api_key=token, 
+                        api_base=url + "/serving-endpoints", max_tokens=200)
+with dspy.context(lm=llama): 
+    rag = RAG()
+    llama_scores = []
+    for x in testset:
+        pred = rag(x.request)
+        score = metric(x, pred)
+        llama_scores.append(score)
+llama_score = sum(llama_scores) / len(llama_scores)
+print("Smart model average score (out of 3):    ", llama_score)
 
 # COMMAND ----------
 
@@ -137,25 +154,19 @@ optimized_rag = optimizer.compile(RAG(), trainset=trainset)
 # COMMAND ----------
 
 # DBTITLE 1,Calculate Optimized Metric
-rag = RAG()
 scores = []
-for x in trainset:
+for x in testset:
     pred = optimized_rag(x.request)
     score = metric(x, pred)
     scores.append(score)
 optimized_score = sum(scores) / len(scores)
 print("Optimized score (out of 3):  ", optimized_score) 
+
+# COMMAND ----------
+
 print("% Improvement over raw:      ", 100*(optimized_score - raw_score) / raw_score)
+print("% Improvement over llama:    ", 100*(optimized_score - llama_score) / llama_score)
 
 # COMMAND ----------
 
-# TODO: save chain to cache folder, set chain, deploy to studio
-# from langchain.chains import LLMChain
-# from dspy.predict.langchain import LangChainModule
-# langchain_module = LangChainModule(optimized_rag)
-# chain = LLMChain(langchain_module)
 
-# COMMAND ----------
-
-# chain.run("What's wrong with the turbocharger?")
-# rag.set_chain(chain)
