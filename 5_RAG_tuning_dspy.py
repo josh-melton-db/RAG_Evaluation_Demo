@@ -1,4 +1,9 @@
 # Databricks notebook source
+# MAGIC %md
+# MAGIC In this notebook, we'll take the data we curated with RAG Studio and fine tune an AI system using [DSPy](https://dspy-docs.vercel.app/), an open source framework for "programming - not prompting - language models". The aim is to eliminate brittle attachments to models or prompts by defining the process of our AI system, and allowing AI to optimize it for us. We can swap new models in and out for various pieces of the system and be confident our results are efficient and accurate without hand-tuning prompting techniques or relying on subjective, imprecise evaluations of prompting techniques.
+
+# COMMAND ----------
+
 # MAGIC %run ./utils/wheel_installer 
 
 # COMMAND ----------
@@ -35,6 +40,7 @@ dspy.settings.configure(lm=lm) # TODO: set a separate cache folder os.environ["D
 
 # COMMAND ----------
 
+# DBTITLE 1,Define our Respond Signature
 class Respond(dspy.Signature):
     """Generates a response to the request given some context"""
     request = dspy.InputField(desc="Request from an end user")
@@ -121,6 +127,7 @@ print("Baseline average score (out of 3):    ", raw_score)
 
 # COMMAND ----------
 
+# DBTITLE 1,Calculate Llama Metric
 llama = dspy.Databricks(model="databricks-meta-llama-3-70b-instruct", model_type="chat", api_key=token, 
                         api_base=url + "/serving-endpoints", max_tokens=200)
 with dspy.context(lm=llama): 
@@ -164,9 +171,11 @@ print("Optimized score (out of 3):  ", optimized_score)
 
 # COMMAND ----------
 
+# DBTITLE 1,Compare Metrics
 print("% Improvement over raw:      ", 100*(optimized_score - raw_score) / raw_score)
 print("% Improvement over llama:    ", 100*(optimized_score - llama_score) / llama_score)
 
 # COMMAND ----------
 
-
+# MAGIC %md
+# MAGIC According to the metric above, the DSPy optimized MPT-7b system scores noticably higher than the baseline, or even the un-optimized Llama-3-70b model (which is 6x more expensive per output token). Alternatively, it's likely you could optimize a Llama-3-70b system to deliver significantly improved performance. Whether you aim for greater accuracy or reduced cost, you have curated a proprietary improvement to the ROI of your AI systems!
