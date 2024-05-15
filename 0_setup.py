@@ -1,8 +1,4 @@
 # Databricks notebook source
-# Added a comment
-
-# COMMAND ----------
-
 # DBTITLE 1,Set Configuration
 # Set your source names. Optionally, pass a separate target_schema to get_config() below
 catalog = "default"
