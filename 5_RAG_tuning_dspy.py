@@ -155,8 +155,8 @@ config = dict(max_bootstrapped_demos=2, max_labeled_demos=2, max_errors=1, max_r
 
 # Use the proprietary training dataset you've collected and labelled with RAG Studio to
 # optimize your model. The metric is going to tell the optimizer how well it's doing
-optimizer = BootstrapFewShotWithRandomSearch(metric=metric, **config)
-optimized_rag = optimizer.compile(RAG(), trainset=trainset)
+optimizer = BootstrapFewShotWithRandomSearch(metric=metric, teacher_settings=dict({'lm': llama}), **config)
+optimized_rag = optimizer.compile(student=RAG(), trainset=trainset)
 
 # COMMAND ----------
 
@@ -178,4 +178,4 @@ print("% Improvement over llama:    ", 100*(optimized_score - llama_score) / lla
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC According to the metric above, the DSPy optimized MPT-7b system scores noticably higher than the baseline, or even the un-optimized Llama-3-70b model (which is 6x more expensive per output token). Alternatively, it's likely you could optimize a Llama-3-70b system to deliver significantly improved performance. Whether you aim for greater accuracy or reduced cost, you have curated a proprietary improvement to the ROI of your AI systems!
+# MAGIC According to the metric above, the DSPy optimized MPT-7b system scores noticably higher than the baseline, or even the un-optimized Llama-3-70b model (which is 6x more expensive per output token). Alternatively, you could optimize a Llama-3-70b system to deliver significantly improved performance. Whether you aim for greater accuracy or reduced cost, you've used the data curated by RAG Studio to develop a proprietary improvement to the ROI of your AI systems!
