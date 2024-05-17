@@ -1,6 +1,6 @@
 # Databricks notebook source
 # DBTITLE 1,Set Configuration
-# Set your source names. Optionally, pass a separate target_schema to get_config() below
+# Set your demo variables. Optionally, pass a separate target_schema to get_config() below
 catalog = "default"
 schema = "generated_rag_demo"
 table = "field_service_tickets"
@@ -8,7 +8,7 @@ text_col_name = "issue_description"
 text_id_name = "ticket_number"
 vector_search_endpoint_name = "one-env-shared-endpoint-5"
 
-# Set to True and provide the domain and categories if you'd like to generate new data 
+# Set to True and provide the domain and categories if you'd like to generate new data. Otherwise, will use default
 generate_data_for_demo = False
 text_domain = "Field service maintenance tickets for a diesel engine manufacturer"
 category_ls = ["Overheated Turbocharger", "Fuel System Fault", "Worn Cylinder Head"]
@@ -23,7 +23,7 @@ save_config(dbutils, config)
 # COMMAND ----------
 
 # DBTITLE 1,Write Demo Data
-# TODO: pull into demo.py
+spark.sql(f'CREATE SCHEMA IF NOT EXISTS {catalog}.{schema}')
 if generate_data_for_demo:
     from langchain.chat_models import ChatDatabricks
     chat_model = ChatDatabricks(endpoint="databricks-dbrx-instruct", max_tokens = 200)
