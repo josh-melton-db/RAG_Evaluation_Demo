@@ -79,8 +79,6 @@ def save_config(dbutils, rag_config, fname="rag_config.yaml"):
     with open(f"/Workspace/{folder_path}/configs/{fname}", 'w') as outfile:
         yaml.dump(rag_config, outfile, default_flow_style=False)
 
-
-
 def generate_category(chat_model, text_domain, category_ls):
     category_prompt = "Given the domain '{text_domain}', generate a classification or category for a piece of text in the domain. For example, if the domain was 'airplane pilot notes' a category might be 'control panel malfunction'. Come up with a category different from the following, if available: {category_ls}. Give only the category, in three words or less, no description, no filler, nothing about a response, ONLY THE CATEGORY:"
     category = chat_model.predict(category_prompt.format(text_domain=text_domain, category_ls=category_ls))
